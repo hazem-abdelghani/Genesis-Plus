@@ -175,6 +175,9 @@ void set_config_defaults(void)
   gui.large_ui            = 0;
   gui.cheats_enabled      = 0;
   gui.browser_grid_view   = 0;
+  gui.hide_toolbar        = 0;
+  gui.hide_searchbar      = 0;
+  gui.hide_filterbar      = 0;
   gui.browser_grid_size   = 96;
   gui.key_fast_forward    = VK_TAB;
   gui.key_rewind          = VK_BACK;
@@ -398,6 +401,9 @@ void config_load(void)
   gui.large_ui = ini_get("video", "large_ui", gui.large_ui) ? 1 : 0;
   gui.cheats_enabled = ini_get("general", "cheats_enabled", gui.cheats_enabled) ? 1 : 0;
   gui.browser_grid_view = ini_get("general", "browser_grid_view", gui.browser_grid_view) ? 1 : 0;
+  gui.hide_toolbar   = ini_get("general", "hide_toolbar", gui.hide_toolbar) ? 1 : 0;
+  gui.hide_searchbar = ini_get("general", "hide_searchbar", gui.hide_searchbar) ? 1 : 0;
+  gui.hide_filterbar = ini_get("general", "hide_filterbar", gui.hide_filterbar) ? 1 : 0;
   gui.browser_grid_size = clampi(ini_get("general", "browser_grid_size", gui.browser_grid_size), 48, 256);
   gui.show_fps   = ini_get("video", "show_fps", gui.show_fps) ? 1 : 0;
   gui.fullscreen = ini_get("video", "fullscreen", gui.fullscreen) ? 1 : 0;
@@ -628,6 +634,9 @@ void config_save(void)
   ini_put("video", "large_ui", gui.large_ui);
   ini_put("general", "cheats_enabled", gui.cheats_enabled);
   ini_put("general", "browser_grid_view", gui.browser_grid_view);
+  ini_put("general", "hide_toolbar", gui.hide_toolbar);
+  ini_put("general", "hide_searchbar", gui.hide_searchbar);
+  ini_put("general", "hide_filterbar", gui.hide_filterbar);
   ini_put("general", "browser_grid_size", gui.browser_grid_size);
   ini_put("video", "show_fps", gui.show_fps);
   ini_put("video", "fullscreen", gui.fullscreen);

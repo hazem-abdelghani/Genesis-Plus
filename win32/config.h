@@ -146,6 +146,9 @@ typedef struct
   int theme_mode;          /* THEME_AUTO/LIGHT/DARK, see theme.h */
   int large_ui;            /* 0 = normal size, 1 = ~15-20% larger throughout */
   int cheats_enabled;      /* master toggle -- 0 disables every cheat regardless of each one's own checkbox */
+  int hide_toolbar;        /* the ROM browser's toolbar / search bar / filter bar are hidden */
+  int hide_searchbar;
+  int hide_filterbar;
   int browser_grid_view;   /* 0 = report/list view, 1 = icon/grid view with cover art */
   int browser_grid_size;   /* icon size in pixels, adjustable via Ctrl+wheel while in grid view */
   int key_fast_forward;    /* mappable, defaults to VK_TAB */

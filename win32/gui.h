@@ -227,6 +227,15 @@ extern int  browser_panel_handle_contextmenu(HWND target, int x, int y);
 extern HBRUSH browser_panel_ctlcolor(HWND ctrl, HDC hdc);
 extern void browser_panel_change_folder(void);
 extern void browser_apply_view_mode(void);
+extern void browser_bars_changed(void);        /* toolbar / search bar / filter bar switched on or off */
+extern void browser_focus_search(void);        /* Ctrl+F */
+extern int  browser_search_shown(void);
+extern void browser_toggle_searchbar(void);
+extern int  browser_toolbar_height(void);      /* 0 when the toolbar is hidden or fullscreen */
+extern void browser_toolbar_layout(void);      /* place / hide the toolbar (hidden in fullscreen) */
+extern void browser_toolbar_update(void);      /* pressed look of the toolbar's switches */
+extern int  browser_column_hidden(int col);
+extern void browser_toggle_column(int col);
 
 /****************************************************************************
  * rewind.c
@@ -274,6 +283,10 @@ extern void dlg_input(HWND parent, int player);
 extern void dlg_audio(HWND parent);
 extern void dlg_shortcuts(HWND parent);
 extern void dlg_menu_guide(HWND parent);
+extern HMENU gui_main_menu(void);
+extern int  gui_shader_available(void);          /* librashader + Direct3D 11 present (says what is missing) */
+extern int  gui_set_shader(const char *path);    /* a .slangp preset, or NULL / "" for none */
+extern void dlg_settings(HWND parent);   /* settings.c */
 extern void dlg_rom_info(HWND parent);
 
 #endif /* _GUI_H_ */

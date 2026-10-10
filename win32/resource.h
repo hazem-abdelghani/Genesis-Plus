@@ -51,6 +51,13 @@
 
 #define IDM_VIEW_LIST             250
 #define IDM_VIEW_GRID             251
+#define IDM_VIEW_COL_BASE         270   /* .. 273: Name (always on), Console, Folder, Size */
+#define IDM_VIEW_TOOLBAR          274
+#define IDM_VIEW_SEARCHBAR        275
+#define IDM_VIEW_FILTERBAR        276
+#define IDM_VIEW_RESETWINDOW      277
+#define IDM_VIEW_FINDSEARCH       278   /* Ctrl+F */
+#define IDM_OPTIONS_SETTINGS      279   /* Options > Settings... */
 
 /* --- Video ------------------------------------------------------------ */
 #define IDM_VIDEO_SCALE_BASE      300   /* .. 305 == 1x .. 6x */
@@ -142,6 +149,9 @@
 #define IDD_ROMINFO_LARGE         915
 #define IDD_STATEMGR_LARGE        916
 #define IDD_MENUGUIDE_LARGE        917
+#define IDD_SETTINGS              930
+#define IDD_SETTINGS_LARGE        931
+#define IDC_SETTINGS_TAB          1400
 
 #define IDC_ABOUT_TEXT           1000
 #define IDC_ABOUT_LINK1          1069
@@ -197,6 +207,15 @@
 #define IDC_BROWSER_COUNT        1064
 #define IDC_BROWSER_SEARCH       1065
 #define IDC_BROWSER_CHOOSE       1066
+#define IDC_BROWSER_BAR          1200   /* container of the toolbar, search bar and filter bar */
+#define IDC_TB_REFRESH           1201
+#define IDC_TB_PLAY              1202
+#define IDC_BROWSER_SEARCH_LABEL 1203
+#define IDC_BROWSER_SEARCH_CLOSE 1204
+#define IDC_BROWSER_FILTER_CONSOLE 1205
+#define IDC_BROWSER_FILTER_REGION  1206
+#define IDC_BROWSER_FILTER_FOLDER  1207
+#define IDC_BROWSER_FILTER_RESET   1208
 
 #define IDD_STATEMGR              908
 #define IDM_FILE_STATEMGR         109

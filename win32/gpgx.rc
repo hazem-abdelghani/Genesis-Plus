@@ -24,7 +24,7 @@ BEGIN
   POPUP "&File"
   BEGIN
     MENUITEM "&Open ROM...\tCtrl+O",            IDM_FILE_OPEN
-    MENUITEM "ROM &Directory...\tCtrl+B",        IDM_FILE_BROWSER
+    MENUITEM "ROMs &Directory...\tCtrl+B",        IDM_FILE_BROWSER
     POPUP "&Recent Files"
     BEGIN
       MENUITEM "(Empty)",                       IDM_FILE_RECENT_BASE, GRAYED
@@ -68,16 +68,32 @@ BEGIN
 
   POPUP "&View"
   BEGIN
-    MENUITEM "List View",                       IDM_VIEW_LIST
-    MENUITEM "Grid View",                       IDM_VIEW_GRID
+    POPUP "&View Mode"
+    BEGIN
+      MENUITEM "&List View",                    IDM_VIEW_LIST
+      MENUITEM "&Grid View",                    IDM_VIEW_GRID
+    END
+    POPUP "List &Columns"
+    BEGIN
+      MENUITEM "&Name",                         IDM_VIEW_COL_BASE + 0
+      MENUITEM "&Console",                      IDM_VIEW_COL_BASE + 1
+      MENUITEM "&Folder",                       IDM_VIEW_COL_BASE + 2
+      MENUITEM "&Size",                         IDM_VIEW_COL_BASE + 3
+    END
     MENUITEM SEPARATOR
     POPUP "&Theme"
     BEGIN
-      MENUITEM "Follow &Windows Setting",       IDM_VIDEO_THEME_BASE + 0
+      MENUITEM "&System",                       IDM_VIDEO_THEME_BASE + 0
       MENUITEM "&Light",                        IDM_VIDEO_THEME_BASE + 1
       MENUITEM "&Dark",                         IDM_VIDEO_THEME_BASE + 2
     END
     MENUITEM "&Larger UI",                       IDM_VIDEO_LARGE_UI
+    MENUITEM SEPARATOR
+    MENUITEM "Show &Toolbar",                   IDM_VIEW_TOOLBAR
+    MENUITEM "Show S&earch Bar",         IDM_VIEW_SEARCHBAR
+    MENUITEM "Show F&ilter Bar",                IDM_VIEW_FILTERBAR
+    MENUITEM SEPARATOR
+    MENUITEM "&Reset Window Size",              IDM_VIEW_RESETWINDOW
   END
 
   POPUP "&Video"
@@ -255,6 +271,8 @@ BEGIN
 
   POPUP "&Options"
   BEGIN
+    MENUITEM "&Settings...",                    IDM_OPTIONS_SETTINGS
+    MENUITEM SEPARATOR
     POPUP "Re&gion"
     BEGIN
       MENUITEM "Detect from ROM",               IDM_EMU_REGION_BASE + 0
@@ -321,6 +339,7 @@ BEGIN
   "R",          IDM_EMU_RESET,              VIRTKEY, CONTROL
   "R",          IDM_EMU_HARDRESET,          VIRTKEY, CONTROL, SHIFT
   "C",          IDM_EMU_CHEATS,             VIRTKEY, CONTROL
+  "F",          IDM_VIEW_FINDSEARCH,        VIRTKEY, CONTROL
   VK_F9,        IDM_EMU_UNDOLOAD,           VIRTKEY
   VK_F1,        IDM_HELP_SHORTCUTS,         VIRTKEY
   VK_F2,        IDM_EMU_PAUSE,              VIRTKEY
@@ -546,6 +565,24 @@ BEGIN
                   ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL |
                   WS_VSCROLL | NOT WS_TABSTOP
   DEFPUSHBUTTON   "Close", IDOK, 264, 168, 48, 16
+END
+
+IDD_SETTINGS DIALOGEX 0, 0, 420, 300
+STYLE DS_MODALFRAME | DS_SETFONT | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Settings"
+FONT 8, "MS Shell Dlg"
+BEGIN
+  CONTROL         "", IDC_SETTINGS_TAB, "GPSettingsTabs", WS_TABSTOP, 8, 8, 404, 16
+  DEFPUSHBUTTON   "Close", IDOK, 364, 278, 48, 16
+END
+
+IDD_SETTINGS_LARGE DIALOGEX 0, 0, 290, 215
+STYLE DS_MODALFRAME | DS_SETFONT | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Settings"
+FONT 12, "MS Shell Dlg"
+BEGIN
+  CONTROL         "", IDC_SETTINGS_TAB, "GPSettingsTabs", WS_TABSTOP, 6, 6, 278, 13
+  DEFPUSHBUTTON   "Close", IDOK, 236, 194, 48, 16
 END
 
 IDD_MENUGUIDE DIALOGEX 0, 0, 440, 300
@@ -873,8 +910,8 @@ BEGIN
     BEGIN
       VALUE "FileDescription", "Genesis Plus"
       VALUE "FileVersion",     "1.0.0"
-      VALUE "InternalName",    "gpgx"
-      VALUE "OriginalFilename","gpgx.exe"
+      VALUE "InternalName",    "Genesis Plus"
+      VALUE "OriginalFilename","Genesis Plus.exe"
       VALUE "ProductName",     "Genesis Plus"
       VALUE "ProductVersion",  "1.0.0"
       VALUE "LegalCopyright",  "Copyright (C) 1998-2003 Charles MacDonald, 2007-2026 Eke-Eke"

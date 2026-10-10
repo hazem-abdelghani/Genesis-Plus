@@ -34,6 +34,8 @@
 #include "d3d11_video.h"
 #include "shader_chain.h"
 
+extern int browser_toolbar_height(void);   /* browser.c: 0 when the toolbar is not shown */
+
 typedef struct { float x, y, u, v; } d3d11_vertex_t;
 
 /* A minimal, self-contained pass: one texture, one sampler, straight
@@ -69,6 +71,7 @@ static pD3DCompile d3dcompile_fn;
 
 static HWND                        parent_hwnd;
 static HWND                        child_hwnd;
+static int                         child_top = -1;   /* where the surface was last put, below the toolbar */
 static ATOM                        child_class;
 
 static ID3D11Device               *device;
@@ -313,7 +316,7 @@ static int resize_swapchain(int w, int h)
   if (w < 1) w = 1;
   if (h < 1) h = 1;
 
-  MoveWindow(child_hwnd, 0, 0, w, h, FALSE);
+  MoveWindow(child_hwnd, 0, browser_toolbar_height(), w, h, FALSE);
 
   release_swapchain_views();
   ID3D11DeviceContext_OMSetRenderTargets(context, 0, NULL, NULL);
@@ -372,6 +375,7 @@ int d3d11_init(HWND hwnd)
   child_hwnd = CreateWindowExA(0, CHILD_CLASS_NAME, "", WS_CHILD | WS_VISIBLE,
                                 0, 0, 1, 1, hwnd, NULL, GetModuleHandleA(NULL), NULL);
   if (!child_hwnd) return 0;
+  child_top = 0;   /* created at the top; moved on the first frame if the toolbar is up */
 
   if (!create_device_and_swapchain(1, 1))
   {
@@ -606,6 +610,17 @@ int d3d11_render_frame(const uint16 *src_pixels, int src_pitch,
   if (client_w != swap_w || client_h != swap_h)
   {
     if (!resize_swapchain(client_w, client_h)) { device_ok = 0; return 0; }
+  }
+
+  /* The surface sits below the toolbar; it moves when the toolbar appears
+     or goes (fullscreen, View > Show Toolbar). */
+  {
+    int top = browser_toolbar_height();
+    if (top != child_top)
+    {
+      MoveWindow(child_hwnd, 0, top, swap_w, swap_h, FALSE);
+      child_top = top;
+    }
   }
 
   if (!rtv) return 0;

@@ -22,6 +22,7 @@
 #include "recorder.h"
 #include "netplay.h"
 #include "sevenzip.h"
+#include "toolbar.h"
 #include "d3d11_video.h"
 #include "shader_chain.h"
 
@@ -72,6 +73,10 @@ static int auto_paused_by_minimize;
 
 static HACCEL g_accel;
 static HMENU  g_menu;
+
+/* The menu bar, even while it is detached in fullscreen (settings.c reads the
+   options' state from it). */
+HMENU gui_main_menu(void) { return g_menu; }
 
 static char rom_path[GUI_PATH_LEN];
 
@@ -359,19 +364,20 @@ static void layout_status(void)
 static void get_content_rect(RECT *out)
 {
   GetClientRect(g_hwnd, out);
+  out->top += browser_toolbar_height();   /* the toolbar is above the picture / the browser */
 
   if (g_status && IsWindowVisible(g_status))
   {
     RECT sb;
     GetWindowRect(g_status, &sb);
     out->bottom -= (sb.bottom - sb.top);
-    if (out->bottom < out->top) out->bottom = out->top;
   }
+  if (out->bottom < out->top) out->bottom = out->top;
 }
 
 /* Lets browser.c (which can't see the static get_content_rect above)
    trigger a relayout of its own controls -- needed after picking a folder
-   from the "Choose ROM Folder" button, which switches the panel from that
+   from the "Choose ROMs Directory" button, which switches the panel from that
    button to the normal search+list view without a window resize to
    otherwise trigger it. */
 void browser_relayout(void)
@@ -765,6 +771,20 @@ void gui_update_menu(void)
                 MF_BYCOMMAND | (gui.pause_on_focus_loss ? MF_CHECKED : MF_UNCHECKED));
 
   check_radio(g_menu, IDM_VIEW_LIST, 2, gui.browser_grid_view);
+  {
+    int c;
+    for (c = 0; c < 4; c++)
+      CheckMenuItem(g_menu, IDM_VIEW_COL_BASE + c,
+                    MF_BYCOMMAND | ((c == 0 || !browser_column_hidden(c)) ? MF_CHECKED : MF_UNCHECKED));
+    EnableMenuItem(g_menu, IDM_VIEW_COL_BASE, MF_BYCOMMAND | MF_GRAYED);   /* Name is always shown */
+  }
+  CheckMenuItem(g_menu, IDM_VIEW_TOOLBAR, MF_BYCOMMAND | (gui.hide_toolbar ? MF_UNCHECKED : MF_CHECKED));
+  CheckMenuItem(g_menu, IDM_VIEW_SEARCHBAR, MF_BYCOMMAND | (browser_search_shown() ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(g_menu, IDM_VIEW_FILTERBAR, MF_BYCOMMAND | (gui.hide_filterbar ? MF_UNCHECKED : MF_CHECKED));
+  /* The search and filter bars belong to the ROM browser: nothing to switch while a game runs. */
+  EnableMenuItem(g_menu, IDM_VIEW_SEARCHBAR, MF_BYCOMMAND | (emu_running ? MF_GRAYED : MF_ENABLED));
+  EnableMenuItem(g_menu, IDM_VIEW_FILTERBAR, MF_BYCOMMAND | (emu_running ? MF_GRAYED : MF_ENABLED));
+  browser_toolbar_update();
   check_radio(g_menu, IDM_VIDEO_SCALE_BASE, 6, gui.scale - 1);
   check_radio(g_menu, IDM_VIDEO_ASPECT_BASE, 3, gui.aspect);
   check_radio(g_menu, IDM_VIDEO_NTSC_BASE, 4, config.ntsc);
@@ -901,6 +921,10 @@ void gui_resize_to_scale(int scale)
 
   video_preferred_size(scale, &w, &h);
 
+  /* With no game running the ROM browser is what is shown: wide enough for
+     its toolbar. */
+  if (!gui.hide_toolbar && w < TBS(480)) w = TBS(480);
+
   if (g_status && IsWindowVisible(g_status))
   {
     RECT r;
@@ -911,7 +935,7 @@ void gui_resize_to_scale(int scale)
   want.left = 0;
   want.top = 0;
   want.right = w;
-  want.bottom = h + sb;
+  want.bottom = h + sb + browser_toolbar_height();
 
   AdjustWindowRectEx(&want,
                      (DWORD)GetWindowLongPtr(g_hwnd, GWL_STYLE), TRUE,
@@ -2714,6 +2738,69 @@ static void emulation_step(void)
  * Commands
  ****************************************************************************/
 
+/* Shaders need librashader.dll and the Direct3D 11 renderer; says so (once
+   per attempt) when either is missing. Returns 1 when shaders can be used. */
+int gui_shader_available(void)
+{
+  void *device;
+
+  if (!shader_chain_available())
+  {
+    MessageBoxA(g_hwnd, "librashader.dll was not found next to the exe.\n\n"
+                        "GPU shader presets need it -- see the README.",
+                APP_NAME, MB_OK | MB_ICONWARNING);
+    return 0;
+  }
+  if (gui.renderer != RENDERER_D3D11 || !d3d11_get_frame_resources(&device, NULL, NULL))
+  {
+    MessageBoxA(g_hwnd, "GPU shaders need the Direct3D 11 renderer.\n\n"
+                        "Pick it under Video > Renderer first.",
+                APP_NAME, MB_OK | MB_ICONWARNING);
+    return 0;
+  }
+  return 1;
+}
+
+/* Switches to the shader preset at `path`, or turns shaders off when `path`
+   is NULL or empty. Returns 1 on success. */
+int gui_set_shader(const char *path)
+{
+  void *device;
+
+  if (!path || !path[0])
+  {
+    shader_chain_unload();
+    gui.shader_preset_path[0] = '\0';
+    gui_update_menu();
+    config_save();
+    return 1;
+  }
+
+  if (!gui_shader_available()) return 0;
+  if (!d3d11_get_frame_resources(&device, NULL, NULL)) return 0;
+
+  if (shader_chain_load(device, path))
+  {
+    lstrcpynA(gui.shader_preset_path, path, sizeof(gui.shader_preset_path));
+    gui_update_menu();
+    config_save();
+    return 1;
+  }
+
+  {
+    char msg[GUI_PATH_LEN + 128];
+    wsprintfA(msg, "Could not load that shader preset:\n\n%s", shader_chain_last_error());
+    MessageBoxA(g_hwnd, msg, APP_NAME, MB_OK | MB_ICONWARNING);
+  }
+  return 0;
+}
+
+/* Set from the command line (see parse_command_line()). */
+static int cli_fullscreen = -1;    /* -1: as set in the program */
+static int cli_exit_on_close;
+static int cli_state = -1;
+static int cli_help;
+
 static void on_command(int id)
 {
   if (np_command_locked(id))
@@ -2889,8 +2976,55 @@ static void on_command(int id)
   {
     theme_set_mode(id - IDM_VIDEO_THEME_BASE);
     theme_apply_to_window(g_hwnd);
+    RedrawWindow(g_hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
     gui_update_menu();
     config_save();
+    return;
+  }
+
+  if (id >= IDM_VIEW_COL_BASE && id < IDM_VIEW_COL_BASE + 4)
+  {
+    browser_toggle_column(id - IDM_VIEW_COL_BASE);
+    gui_update_menu();
+    return;
+  }
+
+  if (id == IDM_VIEW_SEARCHBAR)
+  {
+    browser_toggle_searchbar();
+    gui_update_menu();
+    return;
+  }
+
+  if (id == IDM_VIEW_TOOLBAR || id == IDM_VIEW_FILTERBAR)
+  {
+    if (id == IDM_VIEW_TOOLBAR)   gui.hide_toolbar   = !gui.hide_toolbar;
+    if (id == IDM_VIEW_FILTERBAR) gui.hide_filterbar = !gui.hide_filterbar;
+    browser_bars_changed();
+    gui_update_menu();
+    config_save();
+    return;
+  }
+
+  if (id == IDM_OPTIONS_SETTINGS)
+  {
+    dlg_settings(g_hwnd);
+    return;
+  }
+
+  if (id == IDM_VIEW_FINDSEARCH)
+  {
+    browser_focus_search();
+    return;
+  }
+
+  if (id == IDM_VIEW_RESETWINDOW)
+  {
+    /* Back to the window size the Video > Window Size setting asks for. */
+    if (gui.fullscreen) video_set_fullscreen(0);
+    if (IsZoomed(g_hwnd) || IsIconic(g_hwnd)) ShowWindow(g_hwnd, SW_RESTORE);
+    gui_resize_to_scale(gui.scale);
+    gui_update_menu();
     return;
   }
 
@@ -3043,6 +3177,7 @@ static void on_command(int id)
     case IDM_FILE_CLOSE:
     case IDM_EMU_STOP:
       emu_close_rom();
+      if (cli_exit_on_close) PostMessage(g_hwnd, WM_CLOSE, 0, 0);   /* back to the frontend */
       break;
 
     case IDM_FILE_RECENT_CLEAR:
@@ -3119,7 +3254,7 @@ static void on_command(int id)
     }
 
     case IDM_FILE_OPENDIR:
-      /* The folder holding gpgx.exe, gpgx.ini, states, saves, cheats, ... */
+      /* The folder holding Genesis Plus.exe, gpgx.ini, states, saves, cheats, ... */
       ShellExecuteA(g_hwnd, "open", osd_path(""), NULL, NULL, SW_SHOWNORMAL);
       break;
 
@@ -3260,54 +3395,26 @@ static void on_command(int id)
       break;
 
     case IDM_VIDEO_SHADER_NONE:
-      shader_chain_unload();
-      gui.shader_preset_path[0] = '\0';
-      gui_update_menu();
-      config_save();
+      gui_set_shader(NULL);
       break;
 
     case IDM_VIDEO_SHADER_PRESET:
     {
       char path[GUI_PATH_LEN] = "";
-      void *device;
-
-      if (!shader_chain_available())
-      {
-        MessageBoxA(g_hwnd, "librashader.dll was not found next to the exe.\n\n"
-                            "GPU shader presets need it -- see the README.",
-                    APP_NAME, MB_OK | MB_ICONWARNING);
-        break;
-      }
-      if (gui.renderer != RENDERER_D3D11 || !d3d11_get_frame_resources(&device, NULL, NULL))
-      {
-        MessageBoxA(g_hwnd, "GPU shaders need the Direct3D 11 renderer.\n\n"
-                            "Pick it under Video > Renderer first.",
-                    APP_NAME, MB_OK | MB_ICONWARNING);
-        break;
-      }
 
       /* shaders/ is created at startup (see WinMain) like every other data
          folder; passed here only as the picker's starting point, and only
          used the very first time -- after that Windows remembers whatever
          folder was last used for this specific picker (GUI_PICK_SHADER's
          own remembered-state slot) on its own. */
+      if (!gui_shader_available()) break;
+
       if (gui_pick_file(g_hwnd, GUI_PICK_SHADER, "Open GPU Shader Preset",
             "Slang shader presets\0*.slangp\0"
             "All files\0*.*\0\0",
             osd_path("shaders"), path, sizeof(path)))
       {
-        if (shader_chain_load(device, path))
-        {
-          lstrcpynA(gui.shader_preset_path, path, sizeof(gui.shader_preset_path));
-          gui_update_menu();
-          config_save();
-        }
-        else
-        {
-          char msg[GUI_PATH_LEN + 128];
-          wsprintfA(msg, "Could not load that shader preset:\n\n%s", shader_chain_last_error());
-          MessageBoxA(g_hwnd, msg, APP_NAME, MB_OK | MB_ICONWARNING);
-        }
+        gui_set_shader(path);
       }
       break;
     }
@@ -3450,6 +3557,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
       break;
 
     case WM_DRAWITEM:
+      if (tb_draw((const DRAWITEMSTRUCT *)lp)) return TRUE;
       if (theme_draw_menu_ownerdraw(lp)) return TRUE;
       break;
 
@@ -3474,6 +3582,14 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
     case WM_ERASEBKGND:
       return 1;   /* video.c paints every pixel it owns */
+
+    case WM_CTLCOLORBTN:       /* the corners around the filter bar's push buttons */
+    case WM_CTLCOLORLISTBOX:   /* the drop-down lists of the filter bar */
+    {
+      HBRUSH br = theme_ctlcolor((HDC)wp);
+      if (br) return (LRESULT)br;
+      break;
+    }
 
     case WM_CTLCOLOREDIT:
     case WM_CTLCOLORSTATIC:
@@ -3514,6 +3630,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
       }
 
       layout_status();
+      browser_toolbar_layout();
       video_invalidate();
       capture_window_geometry();
       if (browser_panel_visible())
@@ -3738,7 +3855,7 @@ static int create_main_window(void)
     }
   }
 
-  g_hwnd = CreateWindowExA(0, APP_CLASS, APP_NAME, WS_OVERLAPPEDWINDOW,
+  g_hwnd = CreateWindowExA(0, APP_CLASS, APP_NAME, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                            x, y,
                            rc.right - rc.left, rc.bottom - rc.top,
                            NULL, g_menu, g_inst, NULL);
@@ -3791,19 +3908,53 @@ static int create_main_window(void)
 }
 
 /* Pulls the first command-line argument out, if there is one. */
-static void first_argument(char *out, int out_len)
+/* Command line, for launching from a frontend (LaunchBox, Pegasus, Playnite,
+   ES-DE, Steam ROM Manager and the like):
+
+     "Genesis Plus.exe" [options] <rom>
+
+   Options (a leading - or --, and unknown ones are ignored):
+     -f, --fullscreen      start the game in fullscreen
+     -w, --windowed        start the game in a window
+     -x, --exit-on-close   quit the program when the game is closed
+                           (Stop, Close ROM) -- hands control back to the frontend
+     -s N, --state N       load save state slot N once the game has started
+     -h, --help            show this list
+   The ROM is the first argument that is not an option. */
+
+static void parse_command_line(char *rom, int rom_len)
 {
   LPWSTR *argv;
-  int argc = 0;
+  int argc = 0, i;
 
-  out[0] = '\0';
+  rom[0] = '\0';
 
   argv = CommandLineToArgvW(GetCommandLineW(), &argc);
   if (!argv) return;
 
-  if (argc >= 2)
+  for (i = 1; i < argc; i++)
   {
-    WideCharToMultiByte(CP_ACP, 0, argv[1], -1, out, out_len, NULL, NULL);
+    const wchar_t *a = argv[i];
+
+    if (a[0] == L'-' && a[1])
+    {
+      const wchar_t *o = a + (a[1] == L'-' ? 2 : 1);
+
+      if (!lstrcmpiW(o, L"f") || !lstrcmpiW(o, L"fullscreen"))          cli_fullscreen = 1;
+      else if (!lstrcmpiW(o, L"w") || !lstrcmpiW(o, L"windowed"))       cli_fullscreen = 0;
+      else if (!lstrcmpiW(o, L"x") || !lstrcmpiW(o, L"exit-on-close") ||
+               !lstrcmpiW(o, L"quit-on-close"))                         cli_exit_on_close = 1;
+      else if (!lstrcmpiW(o, L"h") || !lstrcmpiW(o, L"help") || !lstrcmpiW(o, L"?")) cli_help = 1;
+      else if ((!lstrcmpiW(o, L"s") || !lstrcmpiW(o, L"state")) && i + 1 < argc)
+      {
+        cli_state = _wtoi(argv[++i]);
+        if (cli_state < 0 || cli_state >= GUI_SLOT_MAX) cli_state = -1;
+      }
+      continue;   /* anything else starting with - is not for us */
+    }
+
+    if (!rom[0])
+      WideCharToMultiByte(CP_ACP, 0, a, -1, rom, rom_len, NULL, NULL);
   }
 
   LocalFree(argv);
@@ -3928,8 +4079,39 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
   }
 
-  first_argument(startup_rom, sizeof(startup_rom));
-  if (startup_rom[0]) emu_load_rom(startup_rom);
+  parse_command_line(startup_rom, sizeof(startup_rom));
+
+  if (cli_help)
+  {
+    MessageBoxA(g_hwnd,
+      "Genesis Plus [options] <rom>\n\n"
+      "  -f, --fullscreen     start the game in fullscreen\n"
+      "  -w, --windowed       start the game in a window\n"
+      "  -x, --exit-on-close  quit when the game is closed (for frontends)\n"
+      "  -s N, --state N      load save state slot N after starting\n"
+      "  -h, --help           show this list",
+      APP_NAME, MB_OK | MB_ICONINFORMATION);
+  }
+
+  if (startup_rom[0])
+  {
+    int keep_fs = gui.fullscreen_on_load;
+
+    /* The command line decides fullscreen for this launch only. */
+    if (cli_fullscreen >= 0) gui.fullscreen_on_load = cli_fullscreen;
+    emu_load_rom(startup_rom);
+    gui.fullscreen_on_load = keep_fs;
+
+    if (emu_running && cli_state >= 0)
+    {
+      gui.state_slot = cli_state;
+      SendMessage(g_hwnd, WM_COMMAND, MAKEWPARAM(IDM_FILE_LOADSTATE, 0), 0);
+    }
+
+    /* A frontend started this to play that game: if it did not load, there
+       is nothing to stay open for. */
+    if (!emu_running && cli_exit_on_close) PostMessage(g_hwnd, WM_CLOSE, 0, 0);
+  }
 
   if (!emu_running)
   {
@@ -3957,9 +4139,15 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
       if (browser_panel_visible())
       {
-        if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN)
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && browser_panel_handle_return())
+          continue;
+
+        /* Ctrl+F: the search bar. Handled here, ahead of the dialog-style
+           key handling, so it works whichever control has the focus. */
+        if (msg.message == WM_KEYDOWN && msg.wParam == 'F' &&
+            (GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000))
         {
-          browser_panel_handle_return();
+          browser_focus_search();
           continue;
         }
 

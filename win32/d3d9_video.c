@@ -40,6 +40,8 @@
 #include <d3d9.h>
 #include "d3d9_video.h"
 
+extern int browser_toolbar_height(void);   /* browser.c: 0 when the toolbar is not shown */
+
 typedef struct
 {
   float x, y, z, rhw;
@@ -387,8 +389,8 @@ void d3d9_present(void)
      window that had nothing to do with this frame at all. An explicit
      rect matching the back buffer's own size keeps Present() confined to
      where the content actually belongs. */
-  dst.left = 0; dst.top = 0;
-  dst.right = pp.BackBufferWidth; dst.bottom = pp.BackBufferHeight;
+  dst.left = 0; dst.top = browser_toolbar_height();   /* the toolbar is above the picture */
+  dst.right = pp.BackBufferWidth; dst.bottom = dst.top + pp.BackBufferHeight;
 
   IDirect3DDevice9_Present(device, NULL, &dst, NULL, NULL);
 }

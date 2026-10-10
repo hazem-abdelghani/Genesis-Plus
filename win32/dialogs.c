@@ -1085,13 +1085,26 @@ static INT_PTR CALLBACK shortcuts_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
       }
 
       SetDlgItemTextA(dlg, IDC_SHORTCUTS_TEXT,
+        "KEYBOARD (PLAYER 1 DEFAULTS)\r\n"
+        "Pad Button\tKey\r\n"
+        "D-pad\tArrow keys\r\n"
+        "A B C\tZ X C\r\n"
+        "X Y Z\tA S D\r\n"
+        "Start\tEnter\r\n"
+        "Mode\tRight Shift\r\n"
+        "\r\n"
+        "A connected gamepad works without setup. Change any of the pad\r\n"
+        "bindings under Input > Configure Player.\r\n"
+        "\r\n"
+        "SHORTCUTS\r\n"
+        "Action\tShortcut\r\n"
         "Open a ROM\tCtrl+O\r\n"
-        "ROM Browser\tCtrl+B\r\n"
+        "ROMs Directory\tCtrl+B\r\n"
         "Close the ROM\tCtrl+W\r\n"
         "Reset\tCtrl+R\r\n"
         "Hard Reset\tCtrl+Shift+R\r\n"
         "Cheats\tCtrl+C\r\n"
-        "\r\n"
+        "Search the Game List\tCtrl+F\r\n"
         "Pause and Resume\tF2 / Pause\r\n"
         "Stop the ROM\tF3\r\n"
         "Save to the Current Slot\tF5\r\n"
@@ -1102,22 +1115,10 @@ static INT_PTR CALLBACK shortcuts_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
         "Record Video + Audio (Start / Stop)\tShift+F11\r\n"
         "Record Audio Only (Start / Stop)\tCtrl+F11\r\n"
         "Stop Recording\tAlt+F11\r\n"
-        "\r\n"
         "Toggle Fullscreen\tAlt+Enter / Esc\r\n"
-        "\r\n"
         "Fast Forward\tTab (Hold)\r\n"
         "Rewind\tBackspace (Hold)\r\n"
-        "Advance One Frame While Paused\t\\\r\n"
-        "\r\n"
-        "Player 1 Defaults:\r\n"
-        "D-pad\tArrow keys\r\n"
-        "A B C\tZ X C\r\n"
-        "X Y Z\tA S D\r\n"
-        "Start\tEnter\r\n"
-        "Mode\tRight Shift\r\n"
-        "\r\n"
-        "A connected gamepad works without setup. Change any of the pad\r\n"
-        "bindings under Input > Configure Player.");
+        "Advance One Frame While Paused\t\\");
       return TRUE;
 
     case WM_CTLCOLORDLG:
@@ -1158,7 +1159,7 @@ static const char menu_guide_text[] =
   "  Open ROM... (Ctrl+O):\r\n"
   "   Pick a game file to play: Mega Drive / Genesis, Master System, Game Gear, SG-1000, Mega CD, or a .zip / .7z / .gz that holds one.\r\n"
   "\r\n"
-  "  ROM Directory... (Ctrl+B):\r\n"
+  "  ROMs Directory... (Ctrl+B):\r\n"
   "   Shows the game browser for a folder of games. Double-click a game to play it, right-click for more choices (play with a saved state, cheats, cover image).\r\n"
   "\r\n"
   "  Recent Files:\r\n"
@@ -1202,14 +1203,23 @@ static const char menu_guide_text[] =
   "   Pauses the game while another window has focus.\r\n"
   "\r\n"
   "VIEW\r\n"
-  "  List View, Grid View:\r\n"
-  "   How the game browser shows your games.\r\n"
+  "  View Mode:\r\n"
+  "   List View or Grid View: how the game browser shows your games.\r\n"
+  "\r\n"
+  "  List Columns:\r\n"
+  "   Choose which columns the list view shows: Console, Folder and Size (Name is always shown). Right-clicking the column header does the same.\r\n"
   "\r\n"
   "  Theme:\r\n"
-  "   Follow Windows Setting, Light or Dark.\r\n"
+  "   System (follow Windows), Light or Dark.\r\n"
   "\r\n"
   "  Larger UI:\r\n"
   "   Bigger menus and dialogs.\r\n"
+  "\r\n"
+  "  Show Toolbar, Show Search Bar, Show Filter Bar:\r\n"
+  "   Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, play, stop, reset, pause, start in fullscreen, screenshot, settings and the Player 1 controls. The toolbar stays above the game while it runs in a window and goes away in fullscreen. The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, region (read from tags such as (USA) in the file name) and folder.\r\n"
+  "\r\n"
+  "  Reset Window Size:\r\n"
+  "   Puts the window back at the size chosen under Video > Window Size.\r\n"
   "\r\n"
   "VIDEO\r\n"
   "  Window Size:\r\n"
@@ -1300,6 +1310,9 @@ static const char menu_guide_text[] =
   "   Final: the render filter is applied, then the picture is stretched to 4:3. Corrected: the plain picture stretched to 4:3 at 640x480. Raw: exactly what the emulator drew, at its own size.\r\n"
   "\r\n"
   "OPTIONS\r\n"
+  "  Settings...:\r\n"
+  "   Every option of the menus on tabs (View, Emulation, Video, Audio, Input, Tools and Options). A change takes effect at once, exactly as if you had used the menu; the windows that have their own settings open from a button.\r\n"
+  "\r\n"
   "  Region:\r\n"
   "   Which region the console reports to the game: detect from the ROM, USA, Europe or Japan.\r\n"
   "\r\n"
@@ -1999,7 +2012,7 @@ static INT_PTR CALLBACK netplay_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
 
       wsprintfA(buf, "Your address on this network: %s", netplay_local_addresses()[0] ? netplay_local_addresses() : "(unknown)");
       SetDlgItemTextA(dlg, IDC_NP_MYADDR, buf);
-      np_dlg_status(dlg, "Both players must load the same ROM and use the same gpgx.exe.");
+      np_dlg_status(dlg, "Both players must load the same ROM and use the same Genesis Plus.exe.");
       return TRUE;
     }
 

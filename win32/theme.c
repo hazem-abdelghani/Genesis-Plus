@@ -343,7 +343,14 @@ static BOOL CALLBACK apply_to_child(HWND hwnd, LPARAM lparam)
 
   if (lstrcmpiA(class_name, "ComboBox") == 0)
   {
+    COMBOBOXINFO cbi;
+
     SetWindowTheme(hwnd, dark ? L"DarkMode_CFD" : NULL, NULL);
+
+    /* The drop-down list is a window of its own; without this it stays white. */
+    cbi.cbSize = sizeof(cbi);
+    if (GetComboBoxInfo(hwnd, &cbi) && cbi.hwndList)
+      SetWindowTheme(cbi.hwndList, dark ? L"DarkMode_Explorer" : NULL, NULL);
   }
   else if (!skip_generic_theme)
   {

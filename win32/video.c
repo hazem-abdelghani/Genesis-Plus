@@ -740,20 +740,22 @@ void video_force_redraw(void)
  * Geometry
  ****************************************************************************/
 
-/* Size of the area the frame is drawn into (client area minus status bar). */
+/* Size of the area the frame is drawn into (client area minus the toolbar and
+   the status bar). */
 static void get_video_rect(RECT *out)
 {
   RECT client;
 
   GetClientRect(g_hwnd, &client);
+  client.top += browser_toolbar_height();   /* the toolbar sits above the picture */
 
   if (g_status && IsWindowVisible(g_status))
   {
     RECT sb;
     GetWindowRect(g_status, &sb);
     client.bottom -= (sb.bottom - sb.top);
-    if (client.bottom < client.top) client.bottom = client.top;
   }
+  if (client.bottom < client.top) client.bottom = client.top;
 
   *out = client;
 }
@@ -1196,7 +1198,16 @@ static void present(HDC hdc)
         hw_present      = d3d9_present;
       }
 
-      if (hw_render_frame(src_pixels, src_pitch, src_w, src_h, &dest,
+      /* The Direct3D surface is exactly the picture area (below the
+         toolbar), so everything handed to it is relative to that area. */
+      RECT hw_dest, hw_area;
+
+      hw_dest.left = dest.left - area.left;  hw_dest.right = dest.right - area.left;
+      hw_dest.top  = dest.top - area.top;    hw_dest.bottom = dest.bottom - area.top;
+      hw_area.left = 0;  hw_area.top = 0;
+      hw_area.right = area.right - area.left;  hw_area.bottom = area.bottom - area.top;
+
+      if (hw_render_frame(src_pixels, src_pitch, src_w, src_h, &hw_dest,
                           area.right - area.left, area.bottom - area.top, gui.smooth))
       {
         int area_w = area.right - area.left;
@@ -1205,7 +1216,7 @@ static void present(HDC hdc)
         if (gui.scanline_pct > 0 && ensure_scanline_dib(area_w, area_h))
         {
           ensure_scanline_pattern(sh, area_w, area_h, dest.top - area.top, dest.bottom - dest.top);
-          hw_draw_overlay((const uint32 *)scan_ovl.pixels, area_w * 4, area_w, area_h, &area);
+          hw_draw_overlay((const uint32 *)scan_ovl.pixels, area_w * 4, area_w, area_h, &hw_area);
         }
 
         if ((gui.show_fps || vid.notice[0]) && ensure_osd_dib(area_w, area_h))
@@ -1235,7 +1246,7 @@ static void present(HDC hdc)
             px[i] = (px[i] & 0x00FFFFFF) ? (px[i] | 0xFF000000) : 0x00000000;
           }
 
-          hw_draw_overlay((const uint32 *)osd.pixels, area_w * 4, area_w, area_h, &area);
+          hw_draw_overlay((const uint32 *)osd.pixels, area_w * 4, area_w, area_h, &hw_area);
         }
 
         hw_present();
@@ -1378,6 +1389,8 @@ void video_set_fullscreen(int on)
 
     while (ShowCursor(TRUE) < 0) { }
   }
+
+  browser_toolbar_layout();   /* hidden in fullscreen, back in a window */
 
   vid.dest_valid = 0;
   InvalidateRect(g_hwnd, NULL, TRUE);

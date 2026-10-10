@@ -537,7 +537,7 @@ static int check_info(const u8 *p, int plen, int *peer_delay, char *reason, int 
   if (!const_time_equal(p + 32, np.exe_sha, 32))
   {
     lstrcpynA(reason, "The other player is running a different build of the program.\n"
-                      "Both players must use exactly the same gpgx.exe (copy it from one PC to the other).", rlen);
+                      "Both players must use exactly the same Genesis Plus.exe (copy it from one PC to the other).", rlen);
     return 0;
   }
   if (!const_time_equal(p, mine.rom_sha, 32))

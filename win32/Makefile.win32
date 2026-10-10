@@ -24,7 +24,7 @@
 #
 #   To keep both builds side by side, give each its own object directory and
 #   output name so they do not overwrite each other:
-#       make -f Makefile.win32 CROSS=x86_64-w64-mingw32- OBJDIR=./build_w64 NAME=gpgx64.exe
+#       make -f Makefile.win32 CROSS=x86_64-w64-mingw32- OBJDIR=./build_w64 NAME="Genesis Plus.exe"
 #
 # Useful overrides:
 #   DEBUG=1     keep symbols, no optimisation
@@ -40,7 +40,14 @@
 # with no exceptions and no RTTI so the finished .exe needs no C++ runtime
 # library -- the link step is still plain gcc.
 
-NAME      = gpgx.exe
+NAME      = Genesis Plus.exe
+
+# NAME has a space in it: make needs the target spelled with the space escaped,
+# and the commands need it in quotes.
+empty    :=
+space    := $(empty) $(empty)
+TARGET    = $(subst $(space),\$(space),$(NAME))
+OUTDIR    = $(subst ?, ,$(dir $(subst $(space),?,$(NAME))))
 
 CROSS    ?=
 CC        = $(CROSS)gcc
@@ -221,6 +228,8 @@ OBJECTS  += $(OBJDIR)/main.o \
             $(OBJDIR)/cheats.o \
             $(OBJDIR)/dialogs.o \
             $(OBJDIR)/browser.o \
+            $(OBJDIR)/toolbar.o \
+            $(OBJDIR)/settings.o \
             $(OBJDIR)/coverart.o \
             $(OBJDIR)/rewind.o \
             $(OBJDIR)/theme.o \
@@ -297,10 +306,10 @@ endif
 
 .PHONY: all clean pack
 
-all: $(NAME)
+all: $(TARGET)
 
-$(NAME): $(OBJECTS)
-	$(CC) $(OBJECTS) $(LDFLAGS) $(LIBS) -o $@
+$(TARGET): $(OBJECTS)
+	$(CC) $(OBJECTS) $(LDFLAGS) $(LIBS) -o "$(NAME)"
 
 # The object directory must exist before anything is compiled into it. It is
 # an order-only prerequisite (after the |): its timestamp changes whenever a
@@ -346,6 +355,10 @@ $(OBJDIR)/dialogs.o: $(GUIDIR)/dialogs.c
 $(OBJDIR)/cheats.o:  $(GUIDIR)/cheats.c
 	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@
 $(OBJDIR)/browser.o: $(GUIDIR)/browser.c
+	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@
+$(OBJDIR)/toolbar.o: $(GUIDIR)/toolbar.c $(GUIDIR)/toolbar.h
+	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@
+$(OBJDIR)/settings.o: $(GUIDIR)/settings.c $(GUIDIR)/toolbar.h
 	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@
 $(OBJDIR)/coverart.o: $(GUIDIR)/coverart.c
 	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@
@@ -397,15 +410,15 @@ $(OBJDIR)/%.o: $(CHDLIBDIR)/deps/zstd-1.5.6/lib/common/%.c
 $(OBJDIR)/%.o: $(CHDLIBDIR)/deps/zstd-1.5.6/lib/decompress/%.c
 	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@
 
-pack: $(NAME)
-	$(STRIP) $(NAME)
+pack: $(TARGET)
+	$(STRIP) "$(NAME)"
 	# librashader.dll ships next to the exe (see librashader/README-librashader.txt):
 	# it's loaded at runtime, not linked, so nothing above needed it to build this,
 	# but Shaders > Preset... needs it sitting right here to actually find it.
-	-cp $(GUIDIR)/librashader/librashader.dll $(dir $(NAME))
+	-cp $(GUIDIR)/librashader/librashader.dll "$(OUTDIR)"
 
 clean:
-	rm -rf $(OBJDIR) $(NAME)
+	rm -rf $(OBJDIR) "$(NAME)"
 
 # Header dependencies written by -MMD (missing on a first build: that is fine).
 -include $(OBJECTS:.o=.d)

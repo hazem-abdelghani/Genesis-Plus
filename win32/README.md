@@ -98,7 +98,7 @@ architecture:
    make -f Makefile.win32
    ```
 
-`gpgx.exe` appears in the same `win32` folder — a native Windows executable,
+`Genesis Plus.exe` appears in the same `win32` folder — a native Windows executable,
 runnable directly outside MSYS2 (double-click it, or copy it wherever you
 like). The Direct3D 9 and Direct3D 11 renderers link against import libraries
 that ship with the standard `mingw-w64-*-gcc` package above, so no extra
@@ -113,11 +113,13 @@ make -f Makefile.win32 CROSS=x86_64-w64-mingw32-      # 64-bit
 make -f Makefile.win32 CROSS=i686-w64-mingw32-        # 32-bit
 ```
 
-Either way you get `gpgx.exe`. To keep both builds side by side, give each its
-own object directory and name:
+Either way you get `Genesis Plus.exe`. To keep both builds side by side, give
+each its own object directory and name (the 32-bit release is called
+`Genesis Plus-32bit.exe`):
 
 ```sh
-make -f Makefile.win32 CROSS=x86_64-w64-mingw32- OBJDIR=./build_w64 NAME=gpgx64.exe
+make -f Makefile.win32 CROSS=x86_64-w64-mingw32- OBJDIR=./build_w64 NAME="Genesis Plus.exe"
+make -f Makefile.win32 CROSS=i686-w64-mingw32-   OBJDIR=./build_w32 NAME="Genesis Plus-32bit.exe"
 ```
 
 ### Build options
@@ -146,12 +148,12 @@ in this `win32` folder.
 
 ## Installing
 
-Put `gpgx.exe` wherever you like. On first run it creates its own folders next
+Put `Genesis Plus.exe` wherever you like. On first run it creates its own folders next
 to itself:
 
 ```
-gpgx.exe
-gpgx.ini            settings
+Genesis Plus.exe
+gpgx.ini                 settings
 bios/               optional BIOS and add-on ROMs
 saves/              battery saves (.srm) and Mega CD backup RAM (.brm)
 states/             save states
@@ -205,16 +207,55 @@ Turn the BIOS on under **Options → Boot from BIOS When Available**.
 
 ---
 
+## Launching from a frontend
+
+Genesis Plus can be started by a frontend such as LaunchBox, Pegasus, Playnite,
+ES-DE or Steam ROM Manager. It takes the ROM as its argument, with a few
+options in front of it (a leading `-` or `--`; anything it does not know is
+ignored):
+
+| Option | What it does |
+|---|---|
+| `-f`, `--fullscreen` | Start the game in fullscreen |
+| `-w`, `--windowed` | Start the game in a window |
+| `-x`, `--exit-on-close` | Quit the program when the game is closed (Stop, Close ROM), so the frontend gets control back. Also quits if the ROM did not load. |
+| `-s N`, `--state N` | Load save state slot N (0–9) once the game has started |
+| `-h`, `--help` | Show this list |
+
+```
+"Genesis Plus.exe" --fullscreen --exit-on-close "C:\Roms\Sonic The Hedgehog (USA, Europe).zip"
+```
+
+The fullscreen option applies to that launch only; it does not change your
+saved settings. Where to put this:
+
+- **LaunchBox** – Tools → Manage → Emulators → Add: set *Emulator Application
+  Path* to `Genesis Plus.exe`, add the platform (Sega Genesis, Master System, Game
+  Gear, Sega CD, SG-1000), and put `--fullscreen --exit-on-close` in
+  *Default Command-Line Parameters*. LaunchBox adds the ROM path itself.
+- **Pegasus** – in `metadata.pegasus.txt` (or the collection file):
+  `launch: "C:\Emulators\Genesis Plus.exe" --fullscreen --exit-on-close "{file.path}"`
+- **Playnite** – an emulator profile with *Arguments*
+  `--fullscreen --exit-on-close "{ImagePath}"`.
+- **ES-DE / EmulationStation / RetroBat** – a command such as
+  `"C:\Emulators\Genesis Plus.exe" --fullscreen --exit-on-close %ROM%`.
+- **Steam ROM Manager and others** – any launcher that runs
+  `"Genesis Plus.exe" [options] "<rom>"` works.
+
+Multi-disc Mega CD games: give the `.cue` (or `.chd`) of the first disc.
+
+---
+
 ## Using it
 
 Open a ROM with **File → Open**, drag one onto the window, pass it on the
-command line, or browse a folder with **File → ROM Browser** (Ctrl+B). ZIP
+command line, or browse a folder with **File → ROMs Directory** (Ctrl+B). ZIP
 and GZ archives work directly. The window remembers its position, size and
 maximized state between runs.
 
 ### Keyboard
 
-| | |
+| Key | Pad button |
 |---|---|
 | Arrow keys | D-pad |
 | Z, X, C | A, B, C |
@@ -231,13 +272,14 @@ still need the emulator window to be active).
 
 ### Shortcuts
 
-| | |
+| Shortcut | Action |
 |---|---|
 | Ctrl+O | Open a ROM |
-| Ctrl+B | ROM Browser |
+| Ctrl+B | ROMs Directory |
 | Ctrl+W | Close the ROM |
 | Ctrl+R / Ctrl+Shift+R | Reset / hard reset |
 | Ctrl+C | Cheats |
+| Ctrl+F | Search the game list |
 | F2 | Pause and resume |
 | F3 | Stop the ROM |
 | F5 / F8 | Save / load the current slot |
@@ -289,7 +331,7 @@ moved by one (`FFFE21:00C8`).
 
 ### ROM Browser
 
-**File → ROM Browser** (Ctrl+B) scans a folder for ROMs and lists them —
+**File → ROMs Directory** (Ctrl+B) scans a folder for ROMs and lists them —
 double-click one, or select it and press **Play**, to launch it. **Change...**
 picks a different folder; **Refresh** rescans after adding files. The scan
 goes into subfolders (six levels deep, capped at 4000 files, generous for how
@@ -360,12 +402,12 @@ phosphor-mask effects, upscalers, and so on) works here too. Runs after
 whatever CPU **Render Filter** is selected, if any, and only on the
 **Direct3D 11** renderer.
 
-`librashader.dll` ships alongside `gpgx64.exe` -- nothing to download
+`librashader.dll` ships alongside `Genesis Plus.exe` -- nothing to download
 separately. It's loaded at runtime rather than linked in (see
 `win32/librashader/README-librashader.txt` for why), so it still has to sit
 next to the exe to actually be found; `make pack` copies it there
 automatically. **64-bit only**: librashader has no 32-bit Windows build, so
-`gpgx32.exe` has no Shaders menu at all. **Shaders → None** turns it
+`Genesis Plus-32bit.exe` has no Shaders menu at all. **Shaders → None** turns it
 back off.
 - **Fidelity.** The port was checked to give bit-for-bit the same output as
   the untouched original at every factor from 2x to 6x; the only step added is
@@ -480,7 +522,7 @@ filter is part of the emulator's own picture, so it shows in all three.
 Two people on the same local network can play a game together, one on each PC.
 Open **Tools → Netplay...**.
 
-1. Both players load the **same ROM** and use the **same `gpgx.exe`** (copy it
+1. Both players load the **same ROM** and use the **same `Genesis Plus.exe`** (copy it
    from one PC to the other), with the same emulation settings.
 2. The host chooses a port (default 55455), an input delay (1-4 frames; 2 is
    fine on a normal LAN) and optionally a session code, then presses **Host**.
@@ -512,7 +554,7 @@ The same page is in the program under **Help → Menu Guide**.
 **File**
 
 - **Open ROM... (Ctrl+O)** – Pick a game file to play: Mega Drive / Genesis, Master System, Game Gear, SG-1000, Mega CD, or a .zip / .7z / .gz that holds one.
-- **ROM Directory... (Ctrl+B)** – Shows the game browser for a folder of games. Double-click a game to play it, right-click for more choices (play with a saved state, cheats, cover image).
+- **ROMs Directory... (Ctrl+B)** – Shows the game browser for a folder of games. Double-click a game to play it, right-click for more choices (play with a saved state, cheats, cover image).
 - **Recent Files** – Your last games, each shown with its console.
 - **Close ROM (Ctrl+W)** – Stops the game.
 - **ROM Information...** – Details about the loaded game.
@@ -532,9 +574,12 @@ The same page is in the program under **Help → Menu Guide**.
 
 **View**
 
-- **List View, Grid View** – How the game browser shows your games.
-- **Theme** – Follow Windows Setting, Light or Dark.
+- **View Mode** – List View or Grid View: how the game browser shows your games.
+- **List Columns** – Choose which columns the list view shows: Console, Folder and Size (Name is always shown). Right-clicking the column header does the same.
+- **Theme** – System (follow Windows), Light or Dark.
 - **Larger UI** – Bigger menus and dialogs.
+- **Show Toolbar, Show Search Bar, Show Filter Bar** – Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, play, stop, reset, pause, start in fullscreen, screenshot, settings and the Player 1 controls. The toolbar stays above the game while it runs in a window and goes away in fullscreen. The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, region (read from tags such as (USA) in the file name) and folder.
+- **Reset Window Size** – Puts the window back at the size chosen under Video → Window Size.
 
 **Video**
 
@@ -578,6 +623,7 @@ The same page is in the program under **Help → Menu Guide**.
 
 **Options**
 
+- **Settings...** – Every option of the menus on tabs (View, Emulation, Video, Audio, Input, Tools and Options). A change takes effect at once, exactly as if you had used the menu; the windows that have their own settings open from a button.
 - **Region** – Which region the console reports to the game: detect from the ROM, USA, Europe or Japan.
 - **Force VDP Mode** – Run the video timing at 60 Hz (NTSC) or 50 Hz (PAL) whatever the region says.
 - **Console** – Detect the console from the game, or force a specific model.

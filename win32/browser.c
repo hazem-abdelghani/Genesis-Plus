@@ -32,6 +32,7 @@
 #include "resource.h"
 #include "coverart.h"
 #include "sevenzip.h"
+#include "toolbar.h"
 
 #define BROWSER_MAX_ENTRIES 4000
 #define BROWSER_MAX_DEPTH   6
@@ -43,6 +44,7 @@ typedef struct
   char  name[128];
   char  console[40];
   char  folder[GUI_PATH_LEN];
+  char  region[24];        /* guessed from the file name, for the filter bar */
   DWORD size_bytes;
   FILETIME mtime;          /* with size_bytes: tells a rescan the file is unchanged */
   signed char cover_ext;   /* COVERART_UNCHECKED until the grid first looks this ROM's cover up, then cached */
@@ -81,19 +83,31 @@ static int filtered_index[BROWSER_MAX_ENTRIES];
 static int filtered_count;
 
 /* The panel's own child controls, created once and reused for the life of
-   the app -- shown when nothing is running, hidden the moment it is. */
+   the app -- shown when nothing is running, hidden the moment it is. The
+   toolbar, search bar and filter bar sit inside panel_bar, one container
+   window that fills its own background and passes its children's messages on
+   to the main window. */
+static HWND panel_toolbar;   /* the toolbar: also shown while a game runs in a window */
+static HWND panel_bar;       /* search bar and filter bar */
 static HWND panel_search;
+static HWND panel_search_label;
+static HWND panel_search_close;
+static HWND panel_filter[3];       /* console, region, folder */
+static HWND panel_filter_reset;
 static HWND panel_list;
 static HWND panel_choose;
 static int  panel_visible;
 
-/* "Search..." shown in grey until the box is actually clicked into --
-   real Win32 placeholder text (EM_SETCUEBANNER) needs a Unicode-created
-   edit control to render reliably; this app is ANSI throughout, so it's
-   done by hand: literal text plus a WM_CTLCOLOREDIT-applied grey, swapped
-   for real (black) text the moment the box gets focus. */
-static int  search_placeholder_active;
-#define SEARCH_PLACEHOLDER "Search..."
+/* Toolbar buttons. */
+static HWND tb_open, tb_refresh, tb_play, tb_stop, tb_reset, tb_pause, tb_fs, tb_shot,
+            tb_set, tb_ctl, tb_sep[2];
+
+#define TOOLBAR_H TBS(40)
+
+/* Ctrl+F shows the search bar for now even when View > Show Search Bar is
+   off; the Close button and the menu item both go through
+   browser_toggle_searchbar(), so they always agree. */
+static int  search_forced;
 
 /* Column layout: widths are recomputed proportionally on every relayout,
    so "remembered width" for a hidden column is just whatever it would be
@@ -280,6 +294,83 @@ static int contains_ci(const char *haystack, const char *needle)
   return 0;
 }
 
+/* Region from the file name's parenthesized tags -- "(USA)", "(Europe)",
+   "(Japan, USA)", or the short forms "(U)", "(E)", "(J)", "(UE)" -- or
+   "Unknown" when the name carries none. */
+static const char *const region_words[] =
+  { "USA", "Europe", "Japan", "World", "Asia", "Korea", "Brazil", "Australia", "Germany",
+    "France", "Spain", "Italy", "Sweden", "Netherlands", "China", "Taiwan", "Canada",
+    "UK", "Russia", "Hong Kong", NULL };
+
+static int is_region_word(const char *s, int n)
+{
+  int i;
+  for (i = 0; region_words[i]; i++)
+    if ((int)lstrlenA(region_words[i]) == n &&
+        CompareStringA(LOCALE_USER_DEFAULT, NORM_IGNORECASE, s, n, region_words[i], n) == CSTR_EQUAL)
+      return 1;
+  return 0;
+}
+
+static void classify_region(const char *name, char *out, int out_len)
+{
+  const char *p = name;
+
+  lstrcpynA(out, "Unknown", out_len);
+
+  while ((p = strchr(p, '(')) != NULL)
+  {
+    const char *end = strchr(p, ')');
+    char group[40];
+    int n, ok = 1, i, start;
+
+    if (!end) break;
+    n = (int)(end - p - 1);
+    if (n < 1 || n >= (int)sizeof(group)) { p = end + 1; continue; }
+    memcpy(group, p + 1, (size_t)n);
+    group[n] = '\0';
+    p = end + 1;
+
+    /* Long form: every comma-separated word is a region name. */
+    start = 0;
+    for (i = 0; i <= n && ok; i++)
+    {
+      if (group[i] == ',' || group[i] == '\0')
+      {
+        int s = start, e = i;
+        while (s < e && group[s] == ' ') s++;
+        while (e > s && group[e - 1] == ' ') e--;
+        if (e <= s || !is_region_word(group + s, e - s)) ok = 0;
+        start = i + 1;
+      }
+    }
+    if (ok) { lstrcpynA(out, group, out_len); return; }
+
+    /* Short form: one to three letters, each a region. */
+    if (n <= 3)
+    {
+      char text[40] = "";
+      for (i = 0; i < n; i++)
+      {
+        const char *w = NULL;
+        switch (group[i])
+        {
+          case 'U': w = "USA"; break;
+          case 'E': w = "Europe"; break;
+          case 'J': w = "Japan"; break;
+          case 'W': w = "World"; break;
+          case 'K': w = "Korea"; break;
+          case 'B': w = "Brazil"; break;
+        }
+        if (!w) { text[0] = '\0'; break; }
+        if (text[0]) lstrcatA(text, ", ");
+        lstrcatA(text, w);
+      }
+      if (text[0]) { lstrcpynA(out, text, out_len); return; }
+    }
+  }
+}
+
 /****************************************************************************
  * Scanning
  *
@@ -359,6 +450,7 @@ static void scan_dir(const char *dir, const char *rel, int depth)
       e->size_bytes = fd.nFileSizeLow;   /* every supported format fits well under 4 GB */
       e->mtime = fd.ftLastWriteTime;
       e->cover_ext = COVERART_UNCHECKED;
+      classify_region(fd.cFileName, e->region, (int)sizeof(e->region));
       e->img_slot = -1;
       e->img_gen = 0;
 
@@ -411,6 +503,95 @@ static int pick_folder(HWND parent, char *out, int out_len)
  * List population and filtering
  ****************************************************************************/
 
+static int search_shown(void)
+{
+  return search_forced || !gui.hide_searchbar;
+}
+
+/* The filter bar: what the scanned games really have, one drop-down list
+   each. The lists point into entries[] and are rebuilt after every scan; the
+   choice is remembered by its text, so it survives a rescan. */
+#define FILTER_MAX 64
+static const char *f_list[3][FILTER_MAX];
+static int  f_count[3];
+static char sel_con[40];
+static char sel_reg[24];
+static char sel_fol[GUI_PATH_LEN];
+static int  sel_fol_on;               /* sel_fol is "" for the top level, so it needs its own flag */
+
+static int cmp_text(const void *a, const void *b)
+{
+  return lstrcmpiA(*(const char *const *)a, *(const char *const *)b);
+}
+
+static void filter_add(int which, const char *s)
+{
+  int i;
+  for (i = 0; i < f_count[which]; i++)
+    if (!lstrcmpiA(f_list[which][i], s)) return;
+  if (f_count[which] < FILTER_MAX) f_list[which][f_count[which]++] = s;
+}
+
+static void fill_filters(void)
+{
+  static const char *const all_text[3] = { "All Consoles", "All Regions", "All Folders" };
+  int i, k;
+
+  if (!panel_filter[0]) return;
+
+  f_count[0] = f_count[1] = f_count[2] = 0;
+  for (i = 0; i < entry_count; i++)
+  {
+    filter_add(0, entries[i].console);
+    filter_add(1, entries[i].region);
+    filter_add(2, entries[i].folder);
+  }
+  for (k = 0; k < 3; k++) qsort(f_list[k], (size_t)f_count[k], sizeof(f_list[k][0]), cmp_text);
+
+  for (k = 0; k < 3; k++)
+  {
+    int sel = 0;
+
+    SendMessageA(panel_filter[k], CB_RESETCONTENT, 0, 0);
+    SendMessageA(panel_filter[k], CB_ADDSTRING, 0, (LPARAM)all_text[k]);
+    for (i = 0; i < f_count[k]; i++)
+    {
+      const char *s = f_list[k][i];
+      SendMessageA(panel_filter[k], CB_ADDSTRING, 0, (LPARAM)((k == 2 && !s[0]) ? "(top level)" : s));
+
+      if (k == 0 && sel_con[0] && !lstrcmpiA(s, sel_con)) sel = i + 1;
+      if (k == 1 && sel_reg[0] && !lstrcmpiA(s, sel_reg)) sel = i + 1;
+      if (k == 2 && sel_fol_on && !lstrcmpiA(s, sel_fol)) sel = i + 1;
+    }
+    SendMessageA(panel_filter[k], CB_SETCURSEL, (WPARAM)sel, 0);
+
+    if (!sel)   /* what was chosen is gone from the folder */
+    {
+      if (k == 0) sel_con[0] = '\0';
+      if (k == 1) sel_reg[0] = '\0';
+      if (k == 2) { sel_fol[0] = '\0'; sel_fol_on = 0; }
+    }
+  }
+}
+
+static void filter_chosen(int k)
+{
+  int idx = (int)SendMessageA(panel_filter[k], CB_GETCURSEL, 0, 0);
+  const char *s = (idx > 0 && idx <= f_count[k]) ? f_list[k][idx - 1] : NULL;
+
+  if (k == 0) lstrcpynA(sel_con, s ? s : "", sizeof(sel_con));
+  if (k == 1) lstrcpynA(sel_reg, s ? s : "", sizeof(sel_reg));
+  if (k == 2) { lstrcpynA(sel_fol, s ? s : "", sizeof(sel_fol)); sel_fol_on = (s != NULL); }
+}
+
+static void filters_reset(void)
+{
+  int k;
+  sel_con[0] = sel_reg[0] = sel_fol[0] = '\0';
+  sel_fol_on = 0;
+  for (k = 0; k < 3; k++) SendMessageA(panel_filter[k], CB_SETCURSEL, 0, 0);
+}
+
 static void update_status_count(void)
 {
   char count_text[64];
@@ -421,7 +602,7 @@ static void update_status_count(void)
   {
     wsprintfA(count_text, "%d+ games (capped)", entry_count);
   }
-  else if (!search_placeholder_active && filtered_count != entry_count)
+  else if (filtered_count != entry_count)
   {
     wsprintfA(count_text, "%d of %d game%s", filtered_count, entry_count,
               (entry_count == 1) ? "" : "s");
@@ -667,19 +848,21 @@ static void browser_apply_filter(void)
 
   if (!panel_list) return;
 
-  if (search_placeholder_active)
-  {
-    search[0] = '\0';
-  }
-  else
-  {
+  if (search_shown())
     GetWindowTextA(panel_search, search, sizeof(search));
-  }
+  else
+    search[0] = '\0';
 
   filtered_count = 0;
   for (i = 0; i < entry_count; i++)
   {
     if (!contains_ci(entries[i].name, search)) continue;
+    if (!gui.hide_filterbar)
+    {
+      if (sel_con[0] && lstrcmpiA(entries[i].console, sel_con)) continue;
+      if (sel_reg[0] && lstrcmpiA(entries[i].region, sel_reg)) continue;
+      if (sel_fol_on && lstrcmpiA(entries[i].folder, sel_fol)) continue;
+    }
     filtered_index[filtered_count++] = i;
   }
 
@@ -720,6 +903,7 @@ static void browser_apply_filter(void)
   InvalidateRect(panel_list, NULL, TRUE);
 
   update_status_count();
+  browser_toolbar_update();
 }
 
 static void browser_rebuild_grid_images_fwd(void);
@@ -750,6 +934,7 @@ static void browser_rescan(void)
   /* The entries are new objects: start the grid's images over. */
   if (gui.browser_grid_view) browser_rebuild_grid_images_fwd();
 
+  fill_filters();
   browser_apply_filter();
 }
 
@@ -788,23 +973,6 @@ static void browser_launch_selected(void)
 }
 
 /****************************************************************************
- * Search box placeholder
- ****************************************************************************/
-
-static void search_show_placeholder(void)
-{
-  search_placeholder_active = 1;
-  SetWindowTextA(panel_search, SEARCH_PLACEHOLDER);
-}
-
-static void search_clear_placeholder(void)
-{
-  if (!search_placeholder_active) return;
-  search_placeholder_active = 0;
-  SetWindowTextA(panel_search, "");
-}
-
-/****************************************************************************
  * Column visibility
  ****************************************************************************/
 
@@ -817,6 +985,29 @@ static void apply_column_widths(void)
     int w = (last_list_w * gui.browser_col_pct[i]) / 100;
     SendMessage(panel_list, LVM_SETCOLUMNWIDTH, (WPARAM)i, (LPARAM)(col_hidden[i] ? 0 : w));
   }
+}
+
+int browser_column_hidden(int col)
+{
+  return (col > 0 && col < BROWSER_COLUMNS) ? col_hidden[col] : 0;
+}
+
+/* Shows or hides one list column (Name, column 0, is always shown). */
+void browser_toggle_column(int col)
+{
+  int i;
+
+  if (col <= 0 || col >= BROWSER_COLUMNS) return;
+
+  col_hidden[col] = !col_hidden[col];
+  apply_column_widths();
+
+  gui.browser_col_hidden = 0;
+  for (i = 0; i < BROWSER_COLUMNS; i++)
+  {
+    if (col_hidden[i]) gui.browser_col_hidden |= (1 << i);
+  }
+  config_save();
 }
 
 static void show_column_menu(int screen_x, int screen_y)
@@ -847,18 +1038,8 @@ static void show_column_menu(int screen_x, int screen_y)
 
   if (cmd >= 2001 && cmd < 2000 + BROWSER_COLUMNS)
   {
-    int col = cmd - 2000;
-    int i;
-
-    col_hidden[col] = !col_hidden[col];
-    apply_column_widths();
-
-    gui.browser_col_hidden = 0;
-    for (i = 0; i < BROWSER_COLUMNS; i++)
-    {
-      if (col_hidden[i]) gui.browser_col_hidden |= (1 << i);
-    }
-    config_save();
+    browser_toggle_column(cmd - 2000);
+    gui_update_menu();
   }
 }
 
@@ -894,6 +1075,45 @@ static LRESULT CALLBACK browser_list_subclass_proc(HWND hwnd, UINT msg, WPARAM w
   return DefSubclassProc(hwnd, msg, wp, lp);
 }
 
+/* The container of the toolbar, search bar and filter bar: paints its own
+   background in the theme's color and hands what its children send (clicks,
+   drawing requests, colors) to the main window, which is where the rest of
+   the program looks for them. */
+static LRESULT CALLBACK bar_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+  switch (msg)
+  {
+    case WM_ERASEBKGND:
+    {
+      RECT r;
+      HBRUSH br = CreateSolidBrush(tb_face_color());
+      GetClientRect(hwnd, &r);
+      FillRect((HDC)wp, &r, br);
+      DeleteObject(br);
+      return 1;
+    }
+
+    case WM_COMMAND:
+    {
+      LRESULT r = SendMessage(GetParent(hwnd), msg, wp, lp);
+
+      /* While a game runs, a toolbar button must not keep the keyboard: the
+         Enter key is the pad's Start button and would press it again. */
+      if (hwnd == panel_toolbar && emu_running) SetFocus(GetParent(hwnd));
+      return r;
+    }
+
+    case WM_DRAWITEM:
+    case WM_NOTIFY:
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLORBTN:
+    case WM_CTLCOLORLISTBOX:
+      return SendMessage(GetParent(hwnd), msg, wp, lp);
+  }
+  return DefWindowProc(hwnd, msg, wp, lp);
+}
+
 void browser_panel_create(HWND parent)
 {
   HFONT font = gui_get_ui_font();
@@ -911,10 +1131,59 @@ void browser_panel_create(HWND parent)
     return;
   }
 
+  {
+    WNDCLASSA wc;
+    ZeroMemory(&wc, sizeof(wc));
+    wc.lpfnWndProc   = bar_proc;
+    wc.hInstance     = g_inst;
+    wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+    wc.lpszClassName = "GPBrowserBar";
+    RegisterClassA(&wc);
+  }
+
+  panel_bar = CreateWindowExA(WS_EX_CONTROLPARENT, "GPBrowserBar", "",
+                              WS_CHILD | WS_CLIPCHILDREN,
+                              0, 0, 0, 0, parent, (HMENU)(UINT_PTR)IDC_BROWSER_BAR,
+                              g_inst, NULL);
+
+  panel_toolbar = CreateWindowExA(WS_EX_CONTROLPARENT, "GPBrowserBar", "",
+                                  WS_CHILD | WS_CLIPCHILDREN,
+                                  0, 0, 0, 0, parent, NULL, g_inst, NULL);
+
+  tb_open    = tb_button(panel_toolbar, IDM_FILE_OPEN, TI_OPEN, "Open ROM (Ctrl+O)");
+  tb_refresh = tb_button(panel_toolbar, IDC_TB_REFRESH, TI_REFRESH, "Refresh the ROM list");
+  tb_sep[0]  = tb_separator(panel_toolbar);
+  tb_play    = tb_button(panel_toolbar, IDC_TB_PLAY, TI_PLAY, "Play the selected game");
+  tb_stop    = tb_button(panel_toolbar, IDM_EMU_STOP, TI_STOP, "Stop (F3)");
+  tb_reset   = tb_button(panel_toolbar, IDM_EMU_RESET, TI_RESET, "Reset (Ctrl+R)");
+  tb_pause   = tb_button(panel_toolbar, IDM_EMU_PAUSE, TI_PAUSE, "Pause (F2)");
+  tb_fs      = tb_button(panel_toolbar, IDM_VIDEO_FULLSCREEN_START, TI_FULLSCREEN, "Start ROM in Fullscreen");
+  tb_shot    = tb_button(panel_toolbar, IDM_FILE_SCREENSHOT, TI_SCREENSHOT, "Save a Screenshot (F12)");
+  tb_sep[1]  = tb_separator(panel_toolbar);
+  tb_set     = tb_button(panel_toolbar, IDM_OPTIONS_SETTINGS, TI_SETTINGS, "Settings");
+  tb_ctl     = tb_button(panel_toolbar, IDM_INPUT_P1, TI_CONTROLS, "Configure Player 1");
+
+  panel_search_label = CreateWindowExA(0, "STATIC", "Search:", WS_CHILD | SS_LEFT,
+                                       0, 0, 0, 0, panel_bar, (HMENU)(UINT_PTR)IDC_BROWSER_SEARCH_LABEL,
+                                       g_inst, NULL);
   panel_search = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "",
                                  WS_CHILD | ES_AUTOHSCROLL | WS_TABSTOP,
-                                 0, 0, 0, 0, parent, (HMENU)(UINT_PTR)IDC_BROWSER_SEARCH,
+                                 0, 0, 0, 0, panel_bar, (HMENU)(UINT_PTR)IDC_BROWSER_SEARCH,
                                  g_inst, NULL);
+  panel_search_close = CreateWindowExA(0, "BUTTON", "Close", WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP,
+                                       0, 0, 0, 0, panel_bar, (HMENU)(UINT_PTR)IDC_BROWSER_SEARCH_CLOSE,
+                                       g_inst, NULL);
+
+  for (i = 0; i < 3; i++)
+  {
+    panel_filter[i] = CreateWindowExA(0, "COMBOBOX", "",
+                                      WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
+                                      0, 0, 0, 0, panel_bar,
+                                      (HMENU)(UINT_PTR)(IDC_BROWSER_FILTER_CONSOLE + i), g_inst, NULL);
+  }
+  panel_filter_reset = CreateWindowExA(0, "BUTTON", "Reset Filters", WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP,
+                                       0, 0, 0, 0, panel_bar, (HMENU)(UINT_PTR)IDC_BROWSER_FILTER_RESET,
+                                       g_inst, NULL);
 
   panel_list = CreateWindowExA(WS_EX_CLIENTEDGE, "SysListView32", "",
                                WS_CHILD | LVS_REPORT | LVS_SINGLESEL |
@@ -923,12 +1192,22 @@ void browser_panel_create(HWND parent)
                                g_inst, NULL);
   SetWindowSubclass(panel_list, browser_list_subclass_proc, 1, 0);
 
-  panel_choose = CreateWindowExA(0, "BUTTON", "Choose ROM Folder...",
+  panel_choose = CreateWindowExA(0, "BUTTON", "Choose ROMs Directory",
                                  WS_CHILD | WS_TABSTOP,
                                  0, 0, 0, 0, parent, (HMENU)(UINT_PTR)IDC_BROWSER_CHOOSE,
                                  g_inst, NULL);
 
   SendMessage(panel_search, WM_SETFONT, (WPARAM)font, TRUE);
+  SendMessage(panel_search_label, WM_SETFONT, (WPARAM)font, TRUE);
+  SendMessage(panel_search_close, WM_SETFONT, (WPARAM)font, TRUE);
+  SendMessage(panel_filter_reset, WM_SETFONT, (WPARAM)font, TRUE);
+  for (i = 0; i < 3; i++)
+  {
+    SendMessage(panel_filter[i], WM_SETFONT, (WPARAM)font, TRUE);
+    SendMessageA(panel_filter[i], CB_ADDSTRING, 0,
+                 (LPARAM)(i == 0 ? "All Consoles" : i == 1 ? "All Regions" : "All Folders"));
+    SendMessage(panel_filter[i], CB_SETCURSEL, 0, 0);
+  }
   SendMessage(panel_list, WM_SETFONT, (WPARAM)font, TRUE);
   SendMessage(panel_choose, WM_SETFONT, (WPARAM)font, TRUE);
 
@@ -952,8 +1231,56 @@ void browser_panel_create(HWND parent)
     SendMessageA(panel_list, LVM_INSERTCOLUMNA, (WPARAM)i, (LPARAM)&col);
   }
   update_sort_arrow();
+  browser_toolbar_update();
+}
 
-  search_show_placeholder();
+/* Shows the toolbar, search bar and filter bar rows that are switched on
+   (and none of them while the "Choose ROMs Directory" button is what is shown). */
+static void show_bars(void)
+{
+  int on = panel_visible && gui.rom_dir[0];
+  int sb = on && search_shown(), fb = on && !gui.hide_filterbar;
+  int i;
+
+  ShowWindow(panel_bar, (sb || fb) ? SW_SHOWNA : SW_HIDE);
+  ShowWindow(panel_search_label, sb ? SW_SHOWNA : SW_HIDE);
+  ShowWindow(panel_search, sb ? SW_SHOWNA : SW_HIDE);
+  ShowWindow(panel_search_close, sb ? SW_SHOWNA : SW_HIDE);
+  for (i = 0; i < 3; i++) ShowWindow(panel_filter[i], fb ? SW_SHOWNA : SW_HIDE);
+  ShowWindow(panel_filter_reset, fb ? SW_SHOWNA : SW_HIDE);
+}
+
+/* Places the bar and its rows; returns the height it takes. */
+static int layout_bar(int x, int y, int w)
+{
+  int m = TBS(4), rows = 0, ry = TBS(2);
+
+  if (search_shown())
+  {
+    int lw = TBS(54), cw = TBS(72), eh = TBS(22);
+    MoveWindow(panel_search_label, m, ry + TBS(4), lw, TBS(18), TRUE);
+    MoveWindow(panel_search, m + lw, ry, w - 2 * m - lw - cw - TBS(6), eh, TRUE);
+    MoveWindow(panel_search_close, w - m - cw, ry - 1, cw, eh + 2, TRUE);
+    ry += eh + TBS(6);
+    rows++;
+  }
+
+  if (!gui.hide_filterbar)
+  {
+    int rw = TBS(96), g3 = TBS(6), eh = TBS(22), k;
+    int cw = (w - 2 * m - rw - 3 * g3) / 3;
+    if (cw < 40) cw = 40;
+    for (k = 0; k < 3; k++)
+      MoveWindow(panel_filter[k], m + k * (cw + g3), ry, cw, TBS(220), TRUE);
+    MoveWindow(panel_filter_reset, w - m - rw, ry - 1, rw, eh + 2, TRUE);
+    ry += eh + TBS(6);
+    rows++;
+  }
+
+  if (!rows) { MoveWindow(panel_bar, x, y, w, 0, TRUE); return 0; }
+
+  MoveWindow(panel_bar, x, y, w, ry, TRUE);
+  return ry;
 }
 
 int browser_panel_visible(void)
@@ -967,16 +1294,29 @@ void browser_panel_show(int show)
 
   panel_visible = show ? 1 : 0;
 
-  ShowWindow(panel_search, (show && has_folder) ? SW_SHOW : SW_HIDE);
   ShowWindow(panel_list, (show && has_folder) ? SW_SHOW : SW_HIDE);
   ShowWindow(panel_choose, (show && !has_folder) ? SW_SHOW : SW_HIDE);
+  show_bars();
 
   if (show)
   {
-    search_show_placeholder();
     browser_apply_view_mode();
     if (has_folder) browser_rescan();
     InvalidateRect(g_hwnd, NULL, TRUE);
+
+    /* Coming back from a game: bring the browser's windows above whatever
+       the renderer left behind and repaint every one of them, so the filter
+       bar and the toolbar are drawn from scratch. */
+    {
+      HWND w[] = { panel_list, panel_bar, panel_toolbar };
+      int i;
+      for (i = 0; i < 3; i++)
+        if (w[i])
+        {
+          SetWindowPos(w[i], HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+          RedrawWindow(w[i], NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        }
+    }
   }
 }
 
@@ -1001,11 +1341,7 @@ void browser_panel_layout(const RECT *area)
     return;
   }
 
-  {
-    int search_h = gui.large_ui ? 30 : 20;
-    MoveWindow(panel_search, x, y, w, search_h, TRUE);
-    y += search_h;
-  }
+  y += layout_bar(x, y, w);
 
   {
     int list_h = area->bottom - y;
@@ -1035,25 +1371,43 @@ int browser_panel_handle_command(WORD id, WORD notify_code)
   switch (id)
   {
     case IDC_BROWSER_SEARCH:
-      if (notify_code == EN_CHANGE)
+      if (notify_code == EN_CHANGE) browser_apply_filter();
+
+      /* A search bar brought up with Ctrl+F while it is switched off goes
+         away again once it is left empty. */
+      if (notify_code == EN_KILLFOCUS && search_forced && GetWindowTextLengthA(panel_search) == 0)
       {
+        search_forced = 0;
+        browser_bars_changed();
+      }
+      return 1;
+
+    case IDC_BROWSER_SEARCH_CLOSE:
+      browser_toggle_searchbar();
+      gui_update_menu();
+      return 1;
+
+    case IDC_BROWSER_FILTER_CONSOLE:
+    case IDC_BROWSER_FILTER_REGION:
+    case IDC_BROWSER_FILTER_FOLDER:
+      if (notify_code == CBN_SELCHANGE)
+      {
+        filter_chosen(id - IDC_BROWSER_FILTER_CONSOLE);
         browser_apply_filter();
       }
-      else if (notify_code == EN_SETFOCUS)
-      {
-        search_clear_placeholder();
-        InvalidateRect(panel_search, NULL, TRUE);
-      }
-      else if (notify_code == EN_KILLFOCUS)
-      {
-        char text[128];
-        GetWindowTextA(panel_search, text, sizeof(text));
-        if (!text[0])
-        {
-          search_show_placeholder();
-          browser_apply_filter();
-        }
-      }
+      return 1;
+
+    case IDC_BROWSER_FILTER_RESET:
+      filters_reset();
+      browser_apply_filter();
+      return 1;
+
+    case IDC_TB_REFRESH:
+      browser_rescan();
+      return 1;
+
+    case IDC_TB_PLAY:
+      browser_launch_selected();
       return 1;
 
     case IDC_BROWSER_CHOOSE:
@@ -1102,6 +1456,13 @@ int browser_panel_handle_notify(NMHDR *hdr)
       di->item.iImage = cover_image_index(&entries[filtered_index[di->item.iItem]]);
     }
     return 1;
+  }
+
+  if (hdr->idFrom == IDC_BROWSER_LIST && hdr->code == LVN_ITEMCHANGED)
+  {
+    NMLISTVIEW *nm = (NMLISTVIEW *)hdr;
+    if (nm->uChanged & LVIF_STATE) browser_toolbar_update();
+    return 0;
   }
 
   if (hdr->idFrom == IDC_BROWSER_LIST && hdr->code == NM_DBLCLK)
@@ -1240,8 +1601,8 @@ static void show_item_context_menu(int screen_x, int screen_y, int item_index)
   AppendMenuA(menu, MF_STRING, IDM_BROWSER_PLAY, "Play Game");
   AppendMenuA(menu, MF_STRING | MF_POPUP, (UINT_PTR)state_menu, "Play Game with State");
   AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
-  AppendMenuA(menu, MF_STRING, IDM_BROWSER_REFRESH, "Refresh ROM Directory");
-  AppendMenuA(menu, MF_STRING, IDM_BROWSER_CHANGE_DIR, "Change ROM Directory");
+  AppendMenuA(menu, MF_STRING, IDM_BROWSER_REFRESH, "Refresh ROMs Directory");
+  AppendMenuA(menu, MF_STRING, IDM_BROWSER_CHANGE_DIR, "Change ROMs Directory");
   AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
   AppendMenuA(menu, MF_STRING, IDM_BROWSER_ROMINFO, "ROM Information");
   AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
@@ -1390,27 +1751,23 @@ int browser_panel_handle_contextmenu(HWND target, int x, int y)
 
 HBRUSH browser_panel_ctlcolor(HWND ctrl, HDC hdc)
 {
+  if (ctrl == panel_search_label)
+  {
+    if (theme_is_dark()) return theme_ctlcolor(hdc);
+
+    SetBkColor(hdc, GetSysColor(COLOR_BTNFACE));
+    SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
+    return GetSysColorBrush(COLOR_BTNFACE);
+  }
+
   if (ctrl != panel_search) return NULL;
 
   if (theme_is_dark())
-  {
-    HBRUSH br = theme_ctlcolor_custom(hdc, RGB(0x38, 0x38, 0x38), 0);
-    if (search_placeholder_active) SetTextColor(hdc, RGB(140, 140, 140));
-    return br;
-  }
+    return theme_ctlcolor_custom(hdc, RGB(0x38, 0x38, 0x38), 0);
 
   SetBkMode(hdc, OPAQUE);
   SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
-
-  if (ctrl == panel_search && search_placeholder_active)
-  {
-    SetTextColor(hdc, GetSysColor(COLOR_GRAYTEXT));
-  }
-  else
-  {
-    SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
-  }
-
+  SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
   return (HBRUSH)(COLOR_WINDOW + 1);
 }
 
@@ -1418,7 +1775,16 @@ HBRUSH browser_panel_ctlcolor(HWND ctrl, HDC hdc)
    the selected -- or first, if nothing is explicitly selected -- entry. */
 int browser_panel_handle_return(void)
 {
+  HWND f;
+
   if (!panel_visible) return 0;
+
+  /* Enter plays the game only from the list or the search box. From the
+     toolbar, the filter drop-downs and the bar's buttons it belongs to that
+     control (pick an item, press the button). */
+  f = GetFocus();
+  if (f && f != panel_list && f != panel_search && !IsChild(panel_list, f) && f != g_hwnd)
+    return 0;
 
   if (ListView_GetNextItem(panel_list, -1, LVNI_SELECTED) < 0 && filtered_count > 0)
   {
@@ -1427,4 +1793,117 @@ int browser_panel_handle_return(void)
   }
   browser_launch_selected();
   return 1;
+}
+
+/****************************************************************************
+ * Toolbar, search bar and filter bar: called from main.c
+ ****************************************************************************/
+
+/* Brings the bars in line with the View menu's switches and lays out again. */
+void browser_bars_changed(void)
+{
+  if (!panel_bar) return;
+
+  if (!search_shown()) SetWindowTextA(panel_search, "");
+  show_bars();
+  browser_toolbar_layout();
+  browser_relayout();
+  if (panel_visible) browser_apply_filter();
+}
+
+/* Ctrl+F: shows the search bar if it is hidden, and puts the cursor in it. */
+void browser_focus_search(void)
+{
+  if (!panel_visible || !gui.rom_dir[0]) return;
+
+  if (!search_shown())
+  {
+    search_forced = 1;
+    browser_bars_changed();
+  }
+  SetFocus(panel_search);
+  SendMessage(panel_search, EM_SETSEL, 0, -1);
+}
+
+/* The pressed look of the toolbar's switches. */
+void browser_toolbar_update(void)
+{
+  if (!tb_fs) return;
+
+  tb_set_checked(tb_fs, gui.fullscreen_on_load);
+
+  /* These act on the running game, so they are grayed while there is none. */
+  /* Play needs a game picked in the list. */
+  EnableWindow(tb_play, !emu_running && panel_list && ListView_GetSelectedCount(panel_list) > 0);
+
+  EnableWindow(tb_stop, emu_running);
+  EnableWindow(tb_reset, emu_running);
+  EnableWindow(tb_pause, emu_running);
+  EnableWindow(tb_shot, emu_running);
+  tb_set_checked(tb_pause, emu_running && emu_paused);
+}
+
+/* The toolbar is shown above the game too, in a window; in fullscreen it
+   goes away. 0 when it is not shown. */
+int browser_toolbar_height(void)
+{
+  if (!panel_toolbar || gui.hide_toolbar || gui.fullscreen) return 0;
+  return TOOLBAR_H;
+}
+
+/* Places the toolbar (or hides it) and moves the picture's area with it. */
+void browser_toolbar_layout(void)
+{
+  static int last_h = -1;
+  int h = browser_toolbar_height();
+  RECT c;
+
+  if (!panel_toolbar) return;
+
+  if (h)
+  {
+    HWND row[] = { tb_open, tb_refresh, tb_sep[0], tb_play, tb_stop, tb_reset, tb_pause, tb_fs, tb_shot,
+                   tb_sep[1], tb_set, tb_ctl };
+    int bw = TBS(36), bh = TBS(32), gap = TBS(2), sep = TBS(14), bx = TBS(4), by = (h - bh) / 2, k;
+
+    GetClientRect(g_hwnd, &c);
+    MoveWindow(panel_toolbar, 0, 0, c.right, h, TRUE);
+
+    for (k = 0; k < (int)(sizeof(row) / sizeof(row[0])); k++)
+    {
+      int is_sep = (row[k] == tb_sep[0] || row[k] == tb_sep[1]);
+      int iw = is_sep ? sep : bw;
+      MoveWindow(row[k], bx, by, iw, bh, TRUE);
+      ShowWindow(row[k], SW_SHOWNA);
+      bx += iw + (is_sep ? 0 : gap);
+    }
+    ShowWindow(panel_toolbar, SW_SHOWNA);
+  }
+  else
+  {
+    ShowWindow(panel_toolbar, SW_HIDE);
+  }
+
+  if (h != last_h)
+  {
+    last_h = h;
+    video_invalidate();
+    InvalidateRect(g_hwnd, NULL, TRUE);
+  }
+}
+
+/* Whether the search bar is up (the View menu's check mark follows this). */
+int browser_search_shown(void)
+{
+  return search_shown();
+}
+
+/* View > Show Search Bar and the bar's Close button: shown <-> hidden, and
+   remembered. */
+void browser_toggle_searchbar(void)
+{
+  gui.hide_searchbar = search_shown() ? 1 : 0;
+  search_forced = 0;
+  browser_bars_changed();
+  config_save();
 }
