@@ -153,7 +153,7 @@ to itself:
 
 ```
 Genesis Plus.exe
-gpgx.ini                 settings
+genesis-plus.ini    settings
 bios/               optional BIOS and add-on ROMs
 saves/              battery saves (.srm) and Mega CD backup RAM (.brm)
 states/             save states

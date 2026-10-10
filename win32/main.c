@@ -3254,7 +3254,7 @@ static void on_command(int id)
     }
 
     case IDM_FILE_OPENDIR:
-      /* The folder holding Genesis Plus.exe, gpgx.ini, states, saves, cheats, ... */
+      /* The folder holding Genesis Plus.exe, genesis-plus.ini, states, saves, cheats, ... */
       ShellExecuteA(g_hwnd, "open", osd_path(""), NULL, NULL, SW_SHOWNORMAL);
       break;
 

@@ -3,7 +3,7 @@
  *
  *  config.c -- default settings and INI persistence.
  *
- *  Settings live in gpgx.ini next to the executable, so the whole thing stays
+ *  Settings live in genesis-plus.ini next to the executable, so the whole thing stays
  *  portable: copy the folder to a USB stick and the configuration travels
  *  with it.
  ****************************************************************************/
@@ -232,7 +232,7 @@ static void ini_init_path(void)
 {
   if (ini_path[0] == '\0')
   {
-    lstrcpynA(ini_path, osd_path("gpgx.ini"), sizeof(ini_path));
+    lstrcpynA(ini_path, osd_path("genesis-plus.ini"), sizeof(ini_path));
   }
 }
 
@@ -242,7 +242,7 @@ static int ini_get(const char *section, const char *key, int fallback)
 }
 
 /* Saving collects every setting in memory and then writes the whole file in
-   one go (to a temporary file that then replaces gpgx.ini). Writing each key
+   one go (to a temporary file that then replaces genesis-plus.ini). Writing each key
    with WritePrivateProfileString rewrote the file about 130 times per save, and
    a crash part-way through could leave it half written. */
 #define INI_MAX_ITEMS 400

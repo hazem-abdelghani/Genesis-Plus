@@ -137,7 +137,7 @@ static int  frame_advance_armed;
    compared against another mask captured for the very same device, never
    across backends), but bits 24-27 are used here anyway to leave buttons
    25-32 of a device with that many free for the future without renumbering
-   anything already saved to gpgx.ini. */
+   anything already saved to genesis-plus.ini. */
 #define DI_MAX_BUTTONS   24
 #define DI_BTN(n)        (1u << (n))
 #define DI_DPAD_UP       (1u << 24)
