@@ -236,6 +236,8 @@ extern int  browser_toolbar_height(void);      /* 0 when the toolbar is hidden o
 extern void browser_toolbar_layout(void);      /* place / hide the toolbar (hidden in fullscreen) */
 extern void browser_toolbar_update(void);      /* pressed look of the toolbar's switches */
 extern int  browser_column_hidden(int col);
+extern void browser_fullscreen_toolbar(int show);    /* fullscreen: the toolbar over the picture while the mouse is at the top */
+extern int  browser_fullscreen_toolbar_shown_height(void);
 extern void browser_toggle_favorite(void);          /* Ctrl+D: the selected game */
 extern void browser_toggle_favorites_only(void);    /* the toolbar star / View > Show Favorites Only */
 extern int  browser_favorites_only(void);

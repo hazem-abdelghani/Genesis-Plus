@@ -1298,7 +1298,7 @@ void browser_panel_create(HWND parent)
   tb_stop    = tb_button(panel_toolbar, IDM_EMU_STOP, TI_STOP, "Stop (F3)");
   tb_reset   = tb_button(panel_toolbar, IDM_EMU_RESET, TI_RESET, "Reset (Ctrl+R)");
   tb_pause   = tb_button(panel_toolbar, IDM_EMU_PAUSE, TI_PAUSE, "Pause (F2)");
-  tb_fs      = tb_button(panel_toolbar, IDM_VIDEO_FULLSCREEN_START, TI_FULLSCREEN, "Start ROM in Fullscreen");
+  tb_fs      = tb_button(panel_toolbar, IDM_VIDEO_FULLSCREEN, TI_FULLSCREEN, "Fullscreen (Alt+Enter)");
   tb_shot    = tb_button(panel_toolbar, IDM_FILE_SCREENSHOT, TI_SCREENSHOT, "Save a Screenshot (F12)");
   tb_sep[1]  = tb_separator(panel_toolbar);
   tb_set     = tb_button(panel_toolbar, IDM_OPTIONS_SETTINGS, TI_SETTINGS, "Settings");
@@ -2091,7 +2091,8 @@ void browser_toolbar_update(void)
 {
   if (!tb_fs) return;
 
-  tb_set_checked(tb_fs, gui.fullscreen_on_load);
+  tb_set_checked(tb_fs, gui.fullscreen);
+  EnableWindow(tb_fs, emu_running);   /* it switches the running game in and out of fullscreen */
   tb_set_checked(tb_fav, gui.favorites_only);
 
   /* These act on the running game, so they are grayed while there is none. */
@@ -2110,29 +2111,52 @@ void browser_toolbar_update(void)
 
 /* The toolbar is shown above the game too, in a window; in fullscreen it
    goes away. 0 when it is not shown. */
+static int fs_overlay;   /* fullscreen: the toolbar is showing (the mouse is at the top edge) */
+
 int browser_toolbar_height(void)
 {
-  if (!panel_toolbar || gui.hide_toolbar || gui.fullscreen) return 0;
+  if (!panel_toolbar || gui.hide_toolbar) return 0;
+  if (gui.fullscreen) return fs_overlay ? TOOLBAR_H : 0;
   return TOOLBAR_H;
 }
 
 /* Places the toolbar (or hides it) and moves the picture's area with it. */
+/* Fullscreen: the toolbar comes in at the top of the screen while the mouse is there, together
+   with the menu bar; the picture makes room for it, as it does for the menu bar. */
+int browser_fullscreen_toolbar_shown_height(void)
+{
+  return fs_overlay ? TOOLBAR_H : 0;
+}
+
+void browser_fullscreen_toolbar(int show)
+{
+  int want = show && panel_toolbar && gui.fullscreen && !gui.hide_toolbar && gui.fullscreen_toolbar;
+
+  if (want == fs_overlay) return;
+  fs_overlay = want;
+  browser_toolbar_layout();   /* places (or hides) the toolbar and moves the picture's top with it */
+}
+
 void browser_toolbar_layout(void)
 {
   static int last_h = -1;
   int h = browser_toolbar_height();
+  int show_h;
   RECT c;
 
   if (!panel_toolbar) return;
 
-  if (h)
+  if (!gui.fullscreen) fs_overlay = 0;
+  show_h = h;
+
+  if (show_h)
   {
     HWND row[] = { tb_open, tb_refresh, tb_fav, tb_sep[0], tb_play, tb_stop, tb_reset, tb_pause, tb_fs, tb_shot,
                    tb_sep[1], tb_set, tb_video, tb_audio, tb_ctl };
-    int bw = TBS(36), bh = TBS(32), gap = TBS(2), sep = TBS(14), bx = TBS(4), by = (h - bh) / 2, k;
+    int bw = TBS(36), bh = TBS(32), gap = TBS(2), sep = TBS(14), bx = TBS(4), by = (show_h - bh) / 2, k;
 
     GetClientRect(g_hwnd, &c);
-    MoveWindow(panel_toolbar, 0, 0, c.right, h, TRUE);
+    MoveWindow(panel_toolbar, 0, 0, c.right, show_h, TRUE);
 
     for (k = 0; k < (int)(sizeof(row) / sizeof(row[0])); k++)
     {

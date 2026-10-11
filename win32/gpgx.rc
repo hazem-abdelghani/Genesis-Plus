@@ -93,6 +93,7 @@ BEGIN
     MENUITEM "&Larger UI",                       IDM_VIDEO_LARGE_UI
     MENUITEM SEPARATOR
     MENUITEM "Show &Toolbar",                   IDM_VIEW_TOOLBAR
+    MENUITEM "Toolbar in Full&screen",          IDM_VIEW_FSTOOLBAR
     MENUITEM "Show S&earch Bar",         IDM_VIEW_SEARCHBAR
     MENUITEM "Show F&ilter Bar",                IDM_VIEW_FILTERBAR
     MENUITEM SEPARATOR

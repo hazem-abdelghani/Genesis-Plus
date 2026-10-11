@@ -159,6 +159,7 @@ typedef struct
                                enters fullscreen automatically whenever a ROM loads */
   int show_fps;
   int favorites_only;      /* the game list shows only the favorites */
+  int fullscreen_toolbar;  /* the toolbar slides in at the top edge of the screen in fullscreen, like the menu bar */
 
   /* window geometry, restored on the next launch */
   int window_x;            /* top-left of the window, INT_MIN = "not set" */

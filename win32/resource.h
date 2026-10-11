@@ -59,6 +59,7 @@
 #define IDM_VIEW_FINDSEARCH       278   /* Ctrl+F */
 #define IDM_OPTIONS_SETTINGS      279   /* Options > Settings... */
 #define IDM_VIEW_COL_FAV          284   /* List Columns > Favorite */
+#define IDM_VIEW_FSTOOLBAR        287   /* View > Toolbar in Fullscreen */
 #define IDM_VIEW_FAVONLY          285   /* View > Show Favorites Only */
 #define IDM_VIEW_TOGGLEFAV        286   /* Ctrl+D: the selected game is, or is not, a favorite */
 #define IDM_OPTIONS_SETTINGS_VIDEO 280  /* toolbar: Settings, on the Video tab */

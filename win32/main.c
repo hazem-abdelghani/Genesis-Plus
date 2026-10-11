@@ -783,6 +783,7 @@ void gui_update_menu(void)
   EnableMenuItem(g_menu, IDM_VIEW_FAVONLY, MF_BYCOMMAND | (emu_running ? MF_GRAYED : MF_ENABLED));
   EnableMenuItem(g_menu, IDM_VIEW_TOGGLEFAV, MF_BYCOMMAND | (emu_running ? MF_GRAYED : MF_ENABLED));
   CheckMenuItem(g_menu, IDM_VIEW_TOOLBAR, MF_BYCOMMAND | (gui.hide_toolbar ? MF_UNCHECKED : MF_CHECKED));
+  CheckMenuItem(g_menu, IDM_VIEW_FSTOOLBAR, MF_BYCOMMAND | (gui.fullscreen_toolbar ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_VIEW_SEARCHBAR, MF_BYCOMMAND | (browser_search_shown() ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_VIEW_FILTERBAR, MF_BYCOMMAND | (gui.hide_filterbar ? MF_UNCHECKED : MF_CHECKED));
   /* The search and filter bars belong to the ROM browser: nothing to switch while a game runs. */
@@ -2454,11 +2455,15 @@ static void tick_fullscreen_menu_hover(void)
   if (!GetMenu(g_hwnd))
   {
     if (p.y <= rc.top + 1 && p.x >= rc.left && p.x < rc.right)
+    {
       set_fullscreen_menu(1);
+      browser_fullscreen_toolbar(1);   /* the toolbar comes with the menu bar */
+    }
   }
-  else if (p.y > rc.top + GetSystemMetrics(SM_CYMENU) + 2 ||
+  else if (p.y > rc.top + GetSystemMetrics(SM_CYMENU) + browser_fullscreen_toolbar_shown_height() + 2 ||
            p.x < rc.left || p.x >= rc.right)
   {
+    browser_fullscreen_toolbar(0);
     set_fullscreen_menu(0);
   }
 }
@@ -2997,6 +3002,15 @@ static void on_command(int id)
   {
     browser_toggle_searchbar();
     gui_update_menu();
+    return;
+  }
+
+  if (id == IDM_VIEW_FSTOOLBAR)
+  {
+    gui.fullscreen_toolbar = !gui.fullscreen_toolbar;
+    browser_fullscreen_toolbar(0);
+    gui_update_menu();
+    config_save();
     return;
   }
 

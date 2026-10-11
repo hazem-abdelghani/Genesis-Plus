@@ -78,6 +78,7 @@ static const SRow rows_view[] =
   CHECK ("Show the Size column",    IDM_VIEW_COL_BASE + 3, "Show the Size column in the list view."),
   CHOICE("Theme:",                IDM_VIDEO_THEME_BASE, it_theme, "System follows Windows; Light or Dark forces one."),
   CHECK ("Larger UI",             IDM_VIDEO_LARGE_UI, "Bigger menus, dialogs and toolbar."),
+  CHECK ("Toolbar in Fullscreen", IDM_VIEW_FSTOOLBAR, "In fullscreen, show the toolbar (with the menu bar) when the mouse touches the top edge of the screen."),
   CHECK ("Show Toolbar",          IDM_VIEW_TOOLBAR, "Show the row of buttons above the game list. It stays above the game while it runs in a window."),
   CHECK ("Show Search Bar",       IDM_VIEW_SEARCHBAR, "Show the search box that narrows the game list as you type (Ctrl+F jumps to it)."),
   CHECK ("Show Filter Bar",       IDM_VIEW_FILTERBAR, "Show the bar that narrows the list by console, region and folder."),

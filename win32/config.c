@@ -191,6 +191,7 @@ void set_config_defaults(void)
   gui.fullscreen_on_load  = 0;
   gui.show_fps            = 0;
   gui.favorites_only      = 0;
+  gui.fullscreen_toolbar  = 0;
 
   /*
    * Sentinel for "never saved". GetPrivateProfileIntA is documented to
@@ -412,6 +413,7 @@ void config_load(void)
   gui.browser_grid_size = clampi(ini_get("general", "browser_grid_size", gui.browser_grid_size), 48, 256);
   gui.show_fps   = ini_get("video", "show_fps", gui.show_fps) ? 1 : 0;
   gui.favorites_only = ini_get("general", "favorites_only", gui.favorites_only) ? 1 : 0;
+  gui.fullscreen_toolbar = ini_get("general", "fullscreen_toolbar", gui.fullscreen_toolbar) ? 1 : 0;
   gui.fullscreen = ini_get("video", "fullscreen", gui.fullscreen) ? 1 : 0;
   gui.fullscreen_on_load = ini_get("video", "fullscreen_on_load", gui.fullscreen_on_load) ? 1 : 0;
   config.ntsc    = (uint8)clampi(ini_get("video", "ntsc_filter", config.ntsc), 0, 3);
@@ -659,6 +661,7 @@ void config_save(void)
   ini_put("general", "browser_grid_size", gui.browser_grid_size);
   ini_put("video", "show_fps", gui.show_fps);
   ini_put("general", "favorites_only", gui.favorites_only);
+  ini_put("general", "fullscreen_toolbar", gui.fullscreen_toolbar);
   ini_put("video", "fullscreen", gui.fullscreen);
   ini_put("video", "fullscreen_on_load", gui.fullscreen_on_load);
   ini_put("video", "ntsc_filter", config.ntsc);

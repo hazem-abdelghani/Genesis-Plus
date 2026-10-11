@@ -1390,7 +1390,8 @@ void video_set_fullscreen(int on)
     while (ShowCursor(TRUE) < 0) { }
   }
 
-  browser_toolbar_layout();   /* hidden in fullscreen, back in a window */
+  browser_toolbar_layout();   /* hidden in fullscreen (it slides in at the top edge), back in a window */
+  browser_toolbar_update();   /* the Fullscreen button shows the new state */
 
   vid.dest_valid = 0;
   InvalidateRect(g_hwnd, NULL, TRUE);
