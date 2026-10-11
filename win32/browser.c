@@ -33,10 +33,12 @@
 #include "coverart.h"
 #include "sevenzip.h"
 #include "toolbar.h"
+#include <zlib.h>
 
 #define BROWSER_MAX_ENTRIES 4000
 #define BROWSER_MAX_DEPTH   6
-#define BROWSER_COLUMNS     4
+#define BROWSER_COLUMNS     5
+#define COL_FAV             4   /* the star; shown first, but numbered last so the others keep their numbers */
 
 typedef struct
 {
@@ -45,6 +47,8 @@ typedef struct
   char  console[40];
   char  folder[GUI_PATH_LEN];
   char  region[24];        /* guessed from the file name, for the filter bar */
+  char  genre[28];         /* looked up by title, "" when unknown, for the filter bar */
+  signed char fav;         /* 1 when the game is a favorite (refreshed whenever the list is built) */
   DWORD size_bytes;
   FILETIME mtime;          /* with size_bytes: tells a rescan the file is unchanged */
   signed char cover_ext;   /* COVERART_UNCHECKED until the grid first looks this ROM's cover up, then cached */
@@ -99,8 +103,8 @@ static HWND panel_choose;
 static int  panel_visible;
 
 /* Toolbar buttons. */
-static HWND tb_open, tb_refresh, tb_play, tb_stop, tb_reset, tb_pause, tb_fs, tb_shot,
-            tb_set, tb_ctl, tb_sep[2];
+static HWND tb_open, tb_refresh, tb_fav, tb_play, tb_stop, tb_reset, tb_pause, tb_fs, tb_shot,
+            tb_set, tb_video, tb_audio, tb_ctl, tb_sep[2];
 
 #define TOOLBAR_H TBS(40)
 
@@ -114,7 +118,23 @@ static int  search_forced;
    at the current window size, not a stale value from before a resize. */
 static int col_hidden[BROWSER_COLUMNS];
 static int last_list_w = 300;
-static const char *col_names[BROWSER_COLUMNS] = { "Name", "Console", "Folder", "Size" };
+static const char *col_names[BROWSER_COLUMNS] = { "Name", "Console", "Folder", "Size", "Favorite" };
+
+/* The star column has a fixed width; the other four share what is left by percent. */
+#define FAV_COL_W TBS(56)
+
+static int list_pct_base(void)
+{
+  int w = last_list_w - (col_hidden[COL_FAV] ? 0 : FAV_COL_W);
+  return w > 1 ? w : 1;
+}
+
+static int col_width(int i)
+{
+  if (col_hidden[i]) return 0;
+  if (i == COL_FAV) return FAV_COL_W;
+  return (list_pct_base() * gui.browser_col_pct[i]) / 100;
+}
 
 /****************************************************************************
  * Classification
@@ -379,6 +399,119 @@ static void classify_region(const char *name, char *out, int out_len)
  * are generous for how people actually organise a ROM collection.
  ****************************************************************************/
 
+/****************************************************************************
+ * Genres
+ *
+ * Which genre a game has comes from a small table built into the program
+ * (genres.bin: the genre lists of the libretro database for the Mega Drive,
+ * Master System, Game Gear and SG-1000), looked up by the game's title: the
+ * file name up to its first "(" or "[", without the extension, "The", spaces
+ * or punctuation, in lower case. A game that is not in it has no genre.
+ ****************************************************************************/
+
+static char  *genre_text;          /* the decompressed table, kept for the life of the program */
+static const char *genre_name[40];
+static int    genre_names;
+typedef struct { const char *key; unsigned char g; } genre_row;
+static genre_row *genre_rows;
+static int    genre_nrows;
+
+static void genres_load(void)
+{
+  HRSRC res;
+  const unsigned char *src;
+  uLongf len;
+  char *p, *line;
+  int cap = 0;
+
+  if (genre_text) return;
+  res = FindResourceA(NULL, MAKEINTRESOURCEA(IDR_GENRES), (LPCSTR)RT_RCDATA);
+  if (!res) return;
+  src = (const unsigned char *)LockResource(LoadResource(NULL, res));
+  if (!src) return;
+  len = (uLongf)*(const int *)src;
+  genre_text = (char *)malloc((size_t)len + 1);
+  if (!genre_text) return;
+  if (uncompress((Bytef *)genre_text, &len, src + 4, SizeofResource(NULL, res) - 4) != Z_OK) { free(genre_text); genre_text = NULL; return; }
+  genre_text[len] = '\0';
+
+  /* line 1: the genre names, then one "key<TAB>number" line per game, sorted by key */
+  p = strchr(genre_text, '\n');
+  if (!p) return;
+  *p++ = '\0';
+  for (line = genre_text; line && genre_names < 40; )
+  {
+    char *bar = strchr(line, '|');
+    genre_name[genre_names++] = line;
+    if (!bar) break;
+    *bar = '\0';
+    line = bar + 1;
+  }
+  for (line = p; *line; )
+  {
+    char *eol = strchr(line, '\n'), *tab = strchr(line, '\t');
+    if (!eol) break;
+    *eol = '\0';
+    if (tab)
+    {
+      *tab = '\0';
+      if (genre_nrows >= cap)
+      {
+        cap = cap ? cap * 2 : 2048;
+        genre_rows = (genre_row *)realloc(genre_rows, sizeof(genre_row) * (size_t)cap);
+        if (!genre_rows) { genre_nrows = 0; return; }
+      }
+      genre_rows[genre_nrows].key = line;
+      genre_rows[genre_nrows].g = (unsigned char)atoi(tab + 1);
+      genre_nrows++;
+    }
+    line = eol + 1;
+  }
+}
+
+static int genre_cmp(const void *a, const void *b)
+{
+  return strcmp((const char *)a, ((const genre_row *)b)->key);
+}
+
+/* The lookup key of a file name: see above. */
+static void genre_key(const char *name, char *out, int out_len)
+{
+  char t[128];
+  int n, cut, i, o = 0;
+  const char *dot;
+
+  lstrcpynA(t, name, sizeof(t));
+  dot = strrchr(t, '.');
+  if (dot && lstrlenA(dot) <= 5) t[dot - t] = '\0';
+  cut = lstrlenA(t);
+  for (i = 0; t[i]; i++)
+    if ((t[i] == ' ' && (t[i + 1] == '(' || t[i + 1] == '[')) || (i == 0 && (t[0] == '(' || t[0] == '['))) { cut = i; break; }
+  t[cut] = '\0';
+  n = lstrlenA(t);
+  while (n > 0 && t[n - 1] == ' ') t[--n] = '\0';
+  for (i = 0; i < n; i++) if (t[i] >= 'A' && t[i] <= 'Z') t[i] = (char)(t[i] + 32);
+  if (n >= 5 && !strcmp(t + n - 5, ", the")) t[n - 5] = '\0';
+  else if (!strncmp(t, "the ", 4)) memmove(t, t + 4, (size_t)(n - 4 + 1));
+  for (i = 0; t[i] && o < out_len - 1; i++)
+    if ((t[i] >= 'a' && t[i] <= 'z') || (t[i] >= '0' && t[i] <= '9')) out[o++] = t[i];
+  out[o] = '\0';
+}
+
+static void classify_genre(const char *name, char *out, int out_len)
+{
+  char key[128];
+  const genre_row *r;
+
+  out[0] = '\0';
+  genres_load();
+  if (!genre_rows || !genre_nrows) return;
+  genre_key(name, key, sizeof(key));
+  if (!key[0]) return;
+  r = (const genre_row *)bsearch(key, genre_rows, (size_t)genre_nrows, sizeof(genre_row), genre_cmp);
+  if (r && r->g < genre_names) lstrcpynA(out, genre_name[r->g], out_len);
+}
+
 static void scan_dir(const char *dir, const char *rel, int depth)
 {
   WIN32_FIND_DATAA fd;
@@ -451,6 +584,7 @@ static void scan_dir(const char *dir, const char *rel, int depth)
       e->mtime = fd.ftLastWriteTime;
       e->cover_ext = COVERART_UNCHECKED;
       classify_region(fd.cFileName, e->region, (int)sizeof(e->region));
+      classify_genre(fd.cFileName, e->genre, (int)sizeof(e->genre));
       e->img_slot = -1;
       e->img_gen = 0;
 
@@ -516,8 +650,8 @@ static const char *f_list[3][FILTER_MAX];
 static int  f_count[3];
 static char sel_con[40];
 static char sel_reg[24];
-static char sel_fol[GUI_PATH_LEN];
-static int  sel_fol_on;               /* sel_fol is "" for the top level, so it needs its own flag */
+static char sel_fol[28];              /* the genre chosen (the second drop-down) */
+static int  sel_fol_on;               /* sel_fol is "" for an unknown genre, so it needs its own flag */
 
 static int cmp_text(const void *a, const void *b)
 {
@@ -534,7 +668,7 @@ static void filter_add(int which, const char *s)
 
 static void fill_filters(void)
 {
-  static const char *const all_text[3] = { "All Consoles", "All Regions", "All Folders" };
+  static const char *const all_text[3] = { "All Consoles", "All Genres", "All Regions" };
   int i, k;
 
   if (!panel_filter[0]) return;
@@ -542,9 +676,9 @@ static void fill_filters(void)
   f_count[0] = f_count[1] = f_count[2] = 0;
   for (i = 0; i < entry_count; i++)
   {
-    filter_add(0, entries[i].console);
-    filter_add(1, entries[i].region);
-    filter_add(2, entries[i].folder);
+    if (lstrcmpiA(entries[i].console, "Archive")) filter_add(0, entries[i].console);   /* an archive nothing was recognized in is not a console */
+    filter_add(1, entries[i].genre);
+    filter_add(2, entries[i].region);
   }
   for (k = 0; k < 3; k++) qsort(f_list[k], (size_t)f_count[k], sizeof(f_list[k][0]), cmp_text);
 
@@ -557,19 +691,19 @@ static void fill_filters(void)
     for (i = 0; i < f_count[k]; i++)
     {
       const char *s = f_list[k][i];
-      SendMessageA(panel_filter[k], CB_ADDSTRING, 0, (LPARAM)((k == 2 && !s[0]) ? "(top level)" : s));
+      SendMessageA(panel_filter[k], CB_ADDSTRING, 0, (LPARAM)((k == 1 && !s[0]) ? "(Unknown)" : s));
 
       if (k == 0 && sel_con[0] && !lstrcmpiA(s, sel_con)) sel = i + 1;
-      if (k == 1 && sel_reg[0] && !lstrcmpiA(s, sel_reg)) sel = i + 1;
-      if (k == 2 && sel_fol_on && !lstrcmpiA(s, sel_fol)) sel = i + 1;
+      if (k == 1 && sel_fol_on && !lstrcmpiA(s, sel_fol)) sel = i + 1;
+      if (k == 2 && sel_reg[0] && !lstrcmpiA(s, sel_reg)) sel = i + 1;
     }
     SendMessageA(panel_filter[k], CB_SETCURSEL, (WPARAM)sel, 0);
 
     if (!sel)   /* what was chosen is gone from the folder */
     {
       if (k == 0) sel_con[0] = '\0';
-      if (k == 1) sel_reg[0] = '\0';
-      if (k == 2) { sel_fol[0] = '\0'; sel_fol_on = 0; }
+      if (k == 1) { sel_fol[0] = '\0'; sel_fol_on = 0; }
+      if (k == 2) sel_reg[0] = '\0';
     }
   }
 }
@@ -580,8 +714,8 @@ static void filter_chosen(int k)
   const char *s = (idx > 0 && idx <= f_count[k]) ? f_list[k][idx - 1] : NULL;
 
   if (k == 0) lstrcpynA(sel_con, s ? s : "", sizeof(sel_con));
-  if (k == 1) lstrcpynA(sel_reg, s ? s : "", sizeof(sel_reg));
-  if (k == 2) { lstrcpynA(sel_fol, s ? s : "", sizeof(sel_fol)); sel_fol_on = (s != NULL); }
+  if (k == 1) { lstrcpynA(sel_fol, s ? s : "", sizeof(sel_fol)); sel_fol_on = (s != NULL); }
+  if (k == 2) lstrcpynA(sel_reg, s ? s : "", sizeof(sel_reg));
 }
 
 static void filters_reset(void)
@@ -633,6 +767,7 @@ static int compare_entries(const void *a, const void *b)
     case 1:  result = lstrcmpiA(ea->console, eb->console); break;
     case 2:  result = lstrcmpiA(ea->folder, eb->folder);   break;
     case 3:  result = (ea->size_bytes > eb->size_bytes) - (ea->size_bytes < eb->size_bytes); break;
+    case COL_FAV: result = (int)eb->fav - (int)ea->fav; break;   /* favorites first when ascending */
     default: result = lstrcmpiA(ea->name, eb->name);        break;
   }
 
@@ -856,12 +991,14 @@ static void browser_apply_filter(void)
   filtered_count = 0;
   for (i = 0; i < entry_count; i++)
   {
+    entries[i].fav = (signed char)config_fav_has(entries[i].full_path);
+    if (gui.favorites_only && !entries[i].fav) continue;
     if (!contains_ci(entries[i].name, search)) continue;
     if (!gui.hide_filterbar)
     {
       if (sel_con[0] && lstrcmpiA(entries[i].console, sel_con)) continue;
       if (sel_reg[0] && lstrcmpiA(entries[i].region, sel_reg)) continue;
-      if (sel_fol_on && lstrcmpiA(entries[i].folder, sel_fol)) continue;
+      if (sel_fol_on && lstrcmpiA(entries[i].genre, sel_fol)) continue;
     }
     filtered_index[filtered_count++] = i;
   }
@@ -981,10 +1118,7 @@ static void apply_column_widths(void)
   int i;
 
   for (i = 0; i < BROWSER_COLUMNS; i++)
-  {
-    int w = (last_list_w * gui.browser_col_pct[i]) / 100;
-    SendMessage(panel_list, LVM_SETCOLUMNWIDTH, (WPARAM)i, (LPARAM)(col_hidden[i] ? 0 : w));
-  }
+    SendMessage(panel_list, LVM_SETCOLUMNWIDTH, (WPARAM)i, (LPARAM)col_width(i));
 }
 
 int browser_column_hidden(int col)
@@ -1152,6 +1286,7 @@ void browser_panel_create(HWND parent)
 
   tb_open    = tb_button(panel_toolbar, IDM_FILE_OPEN, TI_OPEN, "Open ROM (Ctrl+O)");
   tb_refresh = tb_button(panel_toolbar, IDC_TB_REFRESH, TI_REFRESH, "Refresh the ROM list");
+  tb_fav     = tb_button(panel_toolbar, IDC_TB_FAV, TI_FAV, "Show Favorites Only");
   tb_sep[0]  = tb_separator(panel_toolbar);
   tb_play    = tb_button(panel_toolbar, IDC_TB_PLAY, TI_PLAY, "Play the selected game");
   tb_stop    = tb_button(panel_toolbar, IDM_EMU_STOP, TI_STOP, "Stop (F3)");
@@ -1161,7 +1296,9 @@ void browser_panel_create(HWND parent)
   tb_shot    = tb_button(panel_toolbar, IDM_FILE_SCREENSHOT, TI_SCREENSHOT, "Save a Screenshot (F12)");
   tb_sep[1]  = tb_separator(panel_toolbar);
   tb_set     = tb_button(panel_toolbar, IDM_OPTIONS_SETTINGS, TI_SETTINGS, "Settings");
-  tb_ctl     = tb_button(panel_toolbar, IDM_INPUT_P1, TI_CONTROLS, "Configure Player 1");
+  tb_video   = tb_button(panel_toolbar, IDM_OPTIONS_SETTINGS_VIDEO, TI_VIDEO, "Video Settings");
+  tb_audio   = tb_button(panel_toolbar, IDM_OPTIONS_SETTINGS_AUDIO, TI_AUDIO, "Audio Settings");
+  tb_ctl     = tb_button(panel_toolbar, IDM_INPUT_P1, TI_CONTROLS, "Controls");
 
   panel_search_label = CreateWindowExA(0, "STATIC", "Search:", WS_CHILD | SS_LEFT,
                                        0, 0, 0, 0, panel_bar, (HMENU)(UINT_PTR)IDC_BROWSER_SEARCH_LABEL,
@@ -1205,7 +1342,7 @@ void browser_panel_create(HWND parent)
   {
     SendMessage(panel_filter[i], WM_SETFONT, (WPARAM)font, TRUE);
     SendMessageA(panel_filter[i], CB_ADDSTRING, 0,
-                 (LPARAM)(i == 0 ? "All Consoles" : i == 1 ? "All Regions" : "All Folders"));
+                 (LPARAM)(i == 0 ? "All Consoles" : i == 1 ? "All Genres" : "All Regions"));
     SendMessage(panel_filter[i], CB_SETCURSEL, 0, 0);
   }
   SendMessage(panel_list, WM_SETFONT, (WPARAM)font, TRUE);
@@ -1226,9 +1363,13 @@ void browser_panel_create(HWND parent)
   for (i = 0; i < BROWSER_COLUMNS; i++)
   {
     col.iSubItem = i;
-    col.cx = col_hidden[i] ? 0 : (last_list_w * gui.browser_col_pct[i]) / 100;
+    col.cx = col_width(i);
     col.pszText = (LPSTR)col_names[i];
     SendMessageA(panel_list, LVM_INSERTCOLUMNA, (WPARAM)i, (LPARAM)&col);
+  }
+  {
+    int order[BROWSER_COLUMNS] = { COL_FAV, 0, 1, 2, 3 };   /* the star leads, then Name ... Size */
+    SendMessage(panel_list, LVM_SETCOLUMNORDERARRAY, BROWSER_COLUMNS, (LPARAM)order);
   }
   update_sort_arrow();
   browser_toolbar_update();
@@ -1410,6 +1551,11 @@ int browser_panel_handle_command(WORD id, WORD notify_code)
       browser_launch_selected();
       return 1;
 
+    case IDC_TB_FAV:
+      browser_toggle_favorites_only();
+      gui_update_menu();
+      return 1;
+
     case IDC_BROWSER_CHOOSE:
       browser_panel_change_folder();
       return 1;
@@ -1442,6 +1588,87 @@ static void update_sort_arrow(void)
   }
 }
 
+/* Favorites ------------------------------------------------------------ */
+
+static void toggle_favorite_row(int row)
+{
+  browser_entry_t *e;
+  int on;
+
+  if (row < 0 || row >= filtered_count) return;
+  e = &entries[filtered_index[row]];
+  on = !config_fav_has(e->full_path);
+  config_fav_set(e->full_path, on);
+  e->fav = (signed char)on;
+  config_save();
+
+  if (gui.favorites_only || gui.browser_sort_column == COL_FAV)
+    browser_apply_filter();   /* the list changes: a game leaves it, or moves */
+  else
+    ListView_RedrawItems(panel_list, row, row);
+}
+
+/* Ctrl+D / View > Toggle Favorite: the selected game. */
+void browser_toggle_favorite(void)
+{
+  int sel;
+  if (!panel_visible || !panel_list) return;
+  sel = ListView_GetNextItem(panel_list, -1, LVNI_SELECTED);
+  toggle_favorite_row(sel);
+}
+
+int browser_favorites_only(void)
+{
+  return gui.favorites_only;
+}
+
+/* The star on the toolbar / View > Show Favorites Only. */
+void browser_toggle_favorites_only(void)
+{
+  gui.favorites_only = !gui.favorites_only;
+  browser_apply_filter();
+  config_save();
+}
+
+/* Draws the star of a row over its (empty) Favorite cell. */
+LRESULT browser_list_customdraw(NMHDR *hdr)
+{
+  NMLVCUSTOMDRAW *cd = (NMLVCUSTOMDRAW *)hdr;
+
+  if (!hdr || hdr->code != NM_CUSTOMDRAW || !panel_list || hdr->hwndFrom != panel_list) return -1;
+  if (gui.browser_grid_view) return CDRF_DODEFAULT;
+
+  switch (cd->nmcd.dwDrawStage)
+  {
+    case CDDS_PREPAINT:
+      return CDRF_NOTIFYITEMDRAW;
+
+    case CDDS_ITEMPREPAINT:
+      return CDRF_NOTIFYSUBITEMDRAW;
+
+    case CDDS_SUBITEM | CDDS_ITEMPREPAINT:
+      return cd->iSubItem == COL_FAV ? CDRF_NOTIFYPOSTPAINT : CDRF_DODEFAULT;
+
+    case CDDS_SUBITEM | CDDS_ITEMPOSTPAINT:
+      if (cd->iSubItem == COL_FAV && !col_hidden[COL_FAV])
+      {
+        int row = (int)cd->nmcd.dwItemSpec, sz = TBS(16);
+        RECT rc;
+
+        if (row >= 0 && row < filtered_count && ListView_GetSubItemRect(panel_list, row, COL_FAV, LVIR_BOUNDS, &rc))
+        {
+          int on = entries[filtered_index[row]].fav;
+          COLORREF c = on ? (theme_is_dark() ? RGB(255, 255, 255) : RGB(0, 0, 0))   /* a solid star in the text color */
+                          : (theme_is_dark() ? RGB(120, 120, 120) : RGB(150, 150, 150));
+          tb_paint_icon(cd->nmcd.hdc, rc.left + (rc.right - rc.left - sz) / 2, rc.top + (rc.bottom - rc.top - sz) / 2,
+                        sz, on ? TI_FAVON : TI_FAV, c);
+        }
+      }
+      return CDRF_DODEFAULT;
+  }
+  return CDRF_DODEFAULT;
+}
+
 int browser_panel_handle_notify(NMHDR *hdr)
 {
   /* Grid view asks for each visible entry's picture as it draws it. */
@@ -1465,8 +1692,30 @@ int browser_panel_handle_notify(NMHDR *hdr)
     return 0;
   }
 
+  /* A click on a star toggles that game. */
+  if (hdr->idFrom == IDC_BROWSER_LIST && hdr->code == NM_CLICK && !gui.browser_grid_view)
+  {
+    LVHITTESTINFO hit;
+    ZeroMemory(&hit, sizeof(hit));
+    GetCursorPos(&hit.pt);
+    ScreenToClient(panel_list, &hit.pt);
+    if (ListView_SubItemHitTest(panel_list, &hit) >= 0 && hit.iSubItem == COL_FAV && !col_hidden[COL_FAV])
+    {
+      toggle_favorite_row(hit.iItem);
+      return 1;
+    }
+    return 0;
+  }
+
   if (hdr->idFrom == IDC_BROWSER_LIST && hdr->code == NM_DBLCLK)
   {
+    /* A double click on the star is two toggles, not "play". */
+    LVHITTESTINFO hit;
+    ZeroMemory(&hit, sizeof(hit));
+    GetCursorPos(&hit.pt);
+    ScreenToClient(panel_list, &hit.pt);
+    if (!gui.browser_grid_view && ListView_SubItemHitTest(panel_list, &hit) >= 0 && hit.iSubItem == COL_FAV)
+      return 1;
     browser_launch_selected();
     return 1;
   }
@@ -1498,12 +1747,12 @@ int browser_panel_handle_notify(NMHDR *hdr)
     int col = nmh->iItem;
     int new_width;
 
-    if (col < 0 || col >= BROWSER_COLUMNS || col_hidden[col] || last_list_w <= 0)
+    if (col < 0 || col >= BROWSER_COLUMNS || col == COL_FAV || col_hidden[col] || last_list_w <= 0)
       return 0;
 
     new_width = (int)SendMessage(panel_list, LVM_GETCOLUMNWIDTH, (WPARAM)col, 0);
     {
-      int pct = (new_width * 100) / last_list_w;
+      int pct = (new_width * 100) / list_pct_base();
       if (pct < 5) pct = 5;
       if (pct > 90) pct = 90;
       gui.browser_col_pct[col] = pct;
@@ -1600,6 +1849,8 @@ static void show_item_context_menu(int screen_x, int screen_y, int item_index)
 
   AppendMenuA(menu, MF_STRING, IDM_BROWSER_PLAY, "Play Game");
   AppendMenuA(menu, MF_STRING | MF_POPUP, (UINT_PTR)state_menu, "Play Game with State");
+  AppendMenuA(menu, MF_STRING, IDM_BROWSER_FAVORITE,
+              config_fav_has(path) ? "Remove From Favorites" : "Add To Favorites");
   AppendMenuA(menu, MF_SEPARATOR, 0, NULL);
   AppendMenuA(menu, MF_STRING, IDM_BROWSER_REFRESH, "Refresh ROMs Directory");
   AppendMenuA(menu, MF_STRING, IDM_BROWSER_CHANGE_DIR, "Change ROMs Directory");
@@ -1645,6 +1896,10 @@ static void show_item_context_menu(int screen_x, int screen_y, int item_index)
     int slot = cmd - IDM_BROWSER_PLAY_STATE_BASE;
     emu_load_rom(path);
     emu_load_state(slot);
+  }
+  else if (cmd == IDM_BROWSER_FAVORITE)
+  {
+    toggle_favorite_row(item_index);
   }
   else if (cmd == IDM_BROWSER_REFRESH)
   {
@@ -1831,11 +2086,13 @@ void browser_toolbar_update(void)
   if (!tb_fs) return;
 
   tb_set_checked(tb_fs, gui.fullscreen_on_load);
+  tb_set_checked(tb_fav, gui.favorites_only);
 
   /* These act on the running game, so they are grayed while there is none. */
   /* Play needs a game picked in the list. */
   EnableWindow(tb_play, !emu_running && panel_list && ListView_GetSelectedCount(panel_list) > 0);
 
+  EnableWindow(tb_fav, !emu_running);
   EnableWindow(tb_stop, emu_running);
   EnableWindow(tb_reset, emu_running);
   EnableWindow(tb_pause, emu_running);
@@ -1862,8 +2119,8 @@ void browser_toolbar_layout(void)
 
   if (h)
   {
-    HWND row[] = { tb_open, tb_refresh, tb_sep[0], tb_play, tb_stop, tb_reset, tb_pause, tb_fs, tb_shot,
-                   tb_sep[1], tb_set, tb_ctl };
+    HWND row[] = { tb_open, tb_refresh, tb_fav, tb_sep[0], tb_play, tb_stop, tb_reset, tb_pause, tb_fs, tb_shot,
+                   tb_sep[1], tb_set, tb_video, tb_audio, tb_ctl };
     int bw = TBS(36), bh = TBS(32), gap = TBS(2), sep = TBS(14), bx = TBS(4), by = (h - bh) / 2, k;
 
     GetClientRect(g_hwnd, &c);

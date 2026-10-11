@@ -189,6 +189,37 @@ static void draw_icon(Canvas *c, int icon)
       ellipse(c, 12, 13, 3.6, 0, 1.9);
       break;
 
+    case TI_VIDEO:   /* a monitor */
+      roundrect(c, 2.5, 4.5, 21.5, 16, 1.8, 0, 2.0);
+      line(c, 12, 16, 12, 19.5, 2.0);
+      line(c, 7.5, 19.5, 16.5, 19.5, 2.0);
+      break;
+
+    case TI_AUDIO:   /* a speaker with sound waves */
+    {
+      static const double body[12] = { 3.5, 9.5, 7.5, 9.5, 12.5, 5, 12.5, 19, 7.5, 14.5, 3.5, 14.5 };
+      static const double w1[6] = { 15.5, 9.2, 17, 12, 15.5, 14.8 };
+      static const double w2[6] = { 18.3, 6.2, 20.8, 12, 18.3, 17.8 };
+      poly(c, body, 6, 0, 1.8);
+      polyline(c, w1, 3, 1.8);
+      polyline(c, w2, 3, 1.8);
+      break;
+    }
+
+    case TI_FAV:     /* a star, outlined */
+    case TI_FAVON:   /* a star, filled: the Favorites Only switch while it is on */
+    {
+      double s[20];
+      for (i = 0; i < 10; i++)
+      {
+        double a = (-90 + i * 36) * PI_ / 180, r = (i & 1) ? 4.6 : 10.2;
+        s[2 * i] = 12 + r * cos(a);
+        s[2 * i + 1] = 12.9 + r * sin(a);
+      }
+      poly(c, s, 10, icon == TI_FAVON, icon == TI_FAVON ? 0.8 : 1.9);
+      break;
+    }
+
     case TI_CONTROLS:   /* a game pad */
       roundrect(c, 2.5, 6.5, 21.5, 17.5, 5.2, 0, 2.0);
       line(c, 5.6, 12, 10.4, 12, 1.9);
@@ -259,6 +290,41 @@ static unsigned char *mask_for(int icon, int sz)
   }
   if (!g_mask[icon]) g_mask[icon] = icon_mask(icon, sz);
   return g_mask[icon];
+}
+
+void tb_paint_icon(HDC dc, int x, int y, int sz, int icon, COLORREF color)
+{
+  unsigned char *mk = mask_for(icon, sz);
+  BITMAPINFO bi;
+  unsigned *bits = NULL;
+  HDC mdc;
+  HBITMAP bmp, old;
+  int i, r = GetRValue(color), g = GetGValue(color), b = GetBValue(color);
+  BLENDFUNCTION bf = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+
+  if (!mk) return;
+  mdc = CreateCompatibleDC(dc);
+  memset(&bi, 0, sizeof(bi));
+  bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
+  bi.bmiHeader.biWidth = sz;
+  bi.bmiHeader.biHeight = -sz;
+  bi.bmiHeader.biPlanes = 1;
+  bi.bmiHeader.biBitCount = 32;
+  bi.bmiHeader.biCompression = BI_RGB;
+  bmp = CreateDIBSection(mdc, &bi, DIB_RGB_COLORS, (void **)&bits, NULL, 0);
+  if (bmp)
+  {
+    old = (HBITMAP)SelectObject(mdc, bmp);
+    for (i = 0; i < sz * sz; i++)   /* premultiplied, as AlphaBlend wants */
+    {
+      unsigned a = mk[i];
+      bits[i] = (a << 24) | ((unsigned)(r * a / 255) << 16) | ((unsigned)(g * a / 255) << 8) | (unsigned)(b * a / 255);
+    }
+    AlphaBlend(dc, x, y, sz, sz, mdc, 0, 0, sz, sz, bf);
+    SelectObject(mdc, old);
+    DeleteObject(bmp);
+  }
+  DeleteDC(mdc);
 }
 
 /* Theme colors. */
@@ -386,6 +452,8 @@ int tb_draw(const DRAWITEMSTRUCT *di)
     COLORREF face = tb_face_color(), bg = face, fg = dis ? gray_color() : text_color();
     unsigned char *mk;
     HBRUSH hb;
+
+    if (icon == TI_FAV && chk) icon = TI_FAVON;   /* the star fills in while Favorites Only is on */
 
     if (!dis && (hot || down || chk))
     {

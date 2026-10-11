@@ -14,6 +14,8 @@
 IDI_APPICON ICON "gpgx.ico"
 
 1 RT_MANIFEST "gpgx.manifest"
+IDR_PADIMG RCDATA "pad.bin"
+IDR_GENRES RCDATA "genres.bin"
 
 /****************************************************************************
  * Menu
@@ -79,6 +81,7 @@ BEGIN
       MENUITEM "&Console",                      IDM_VIEW_COL_BASE + 1
       MENUITEM "&Folder",                       IDM_VIEW_COL_BASE + 2
       MENUITEM "&Size",                         IDM_VIEW_COL_BASE + 3
+      MENUITEM "&Favorite",                     IDM_VIEW_COL_FAV
     END
     MENUITEM SEPARATOR
     POPUP "&Theme"
@@ -92,6 +95,9 @@ BEGIN
     MENUITEM "Show &Toolbar",                   IDM_VIEW_TOOLBAR
     MENUITEM "Show S&earch Bar",         IDM_VIEW_SEARCHBAR
     MENUITEM "Show F&ilter Bar",                IDM_VIEW_FILTERBAR
+    MENUITEM SEPARATOR
+    MENUITEM "Show &Favorites Only",             IDM_VIEW_FAVONLY
+    MENUITEM "Toggle F&avorite\tCtrl+D",          IDM_VIEW_TOGGLEFAV
     MENUITEM SEPARATOR
     MENUITEM "&Reset Window Size",              IDM_VIEW_RESETWINDOW
   END
@@ -213,8 +219,7 @@ BEGIN
 
   POPUP "&Input"
   BEGIN
-    MENUITEM "Configure Player &1...",          IDM_INPUT_P1
-    MENUITEM "Configure Player &2...",          IDM_INPUT_P2
+    MENUITEM "&Controls...",                    IDM_INPUT_P1
     MENUITEM SEPARATOR
     POPUP "Port &A Device"
     BEGIN
@@ -340,6 +345,7 @@ BEGIN
   "R",          IDM_EMU_HARDRESET,          VIRTKEY, CONTROL, SHIFT
   "C",          IDM_EMU_CHEATS,             VIRTKEY, CONTROL
   "F",          IDM_VIEW_FINDSEARCH,        VIRTKEY, CONTROL
+  "D",          IDM_VIEW_TOGGLEFAV,         VIRTKEY, CONTROL
   VK_F9,        IDM_EMU_UNDOLOAD,           VIRTKEY
   VK_F1,        IDM_HELP_SHORTCUTS,         VIRTKEY
   VK_F2,        IDM_EMU_PAUSE,              VIRTKEY
@@ -480,45 +486,9 @@ END
 
 IDD_INPUT DIALOGEX 0, 0, 320, 258
 STYLE DS_MODALFRAME | DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "Configure Player"
+CAPTION "Controls"
 FONT 8, "MS Shell Dlg"
 BEGIN
-  LTEXT           "Gamepad:", IDC_STATIC, 10, 12, 34, 9
-  COMBOBOX        IDC_INPUT_DEVICE, 48, 9, 100, 90,
-                  CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-  LTEXT           "Pad Type:", IDC_STATIC, 226, 12, 34, 9
-  COMBOBOX        IDC_INPUT_PADTYPE, 226, 26, 84, 90,
-                  CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-  LTEXT           "Keyboard", IDC_STATIC, 74, 28, 60, 9
-  LTEXT           "Controller", IDC_STATIC, 139, 28, 71, 9
-  LTEXT           "Up", IDC_INPUT_LABEL_BASE+0, 10, 42, 60, 9
-  LTEXT           "Down", IDC_INPUT_LABEL_BASE+1, 10, 52, 60, 9
-  LTEXT           "Left", IDC_INPUT_LABEL_BASE+2, 10, 62, 60, 9
-  LTEXT           "Right", IDC_INPUT_LABEL_BASE+3, 10, 72, 60, 9
-  LTEXT           "A", IDC_INPUT_LABEL_BASE+4, 10, 82, 60, 9
-  LTEXT           "B", IDC_INPUT_LABEL_BASE+5, 10, 92, 60, 9
-  LTEXT           "C", IDC_INPUT_LABEL_BASE+6, 10, 102, 60, 9
-  LTEXT           "X", IDC_INPUT_LABEL_BASE+7, 10, 112, 60, 9
-  LTEXT           "Y", IDC_INPUT_LABEL_BASE+8, 10, 122, 60, 9
-  LTEXT           "Z", IDC_INPUT_LABEL_BASE+9, 10, 132, 60, 9
-  LTEXT           "Start", IDC_INPUT_LABEL_BASE+10, 10, 142, 60, 9
-  LTEXT           "Mode", IDC_INPUT_LABEL_BASE+11, 10, 152, 60, 9
-  LTEXT           "Fast Forward", IDC_INPUT_LABEL_BASE+12, 10, 162, 60, 9
-  LTEXT           "Rewind", IDC_INPUT_LABEL_BASE+13, 10, 172, 60, 9
-  LISTBOX         IDC_INPUT_LIST, 74, 40, 136, 140,
-                  LBS_NOTIFY | LBS_USETABSTOPS | WS_VSCROLL | WS_TABSTOP | WS_BORDER
-  PUSHBUTTON      "Assign...", IDC_INPUT_ASSIGN, 226, 60, 84, 16
-  PUSHBUTTON      "Auto Assign...", IDC_INPUT_AUTOASSIGN, 226, 80, 84, 16
-  PUSHBUTTON      "Clear", IDC_INPUT_CLEAR, 226, 100, 84, 16
-  PUSHBUTTON      "Restore Defaults", IDC_INPUT_DEFAULTS, 226, 120, 84, 16
-  LTEXT           "Pick a button, choose Assign, then press the key you want.",
-                  IDC_INPUT_HINT, 10, 186, 300, 18
-  LTEXT           "Deadzone", IDC_INPUT_DEADZONE_LABEL, 10, 210, 60, 9
-  CONTROL         "", IDC_INPUT_DEADZONE, "msctls_trackbar32",
-                  TBS_HORZ | TBS_AUTOTICKS | WS_TABSTOP, 74, 206, 180, 20
-  RTEXT           "", IDC_INPUT_DEADZONE_TEXT, 258, 210, 34, 9
-  DEFPUSHBUTTON   "Save", IDOK, 208, 234, 50, 16
-  PUSHBUTTON      "Cancel", IDCANCEL, 262, 234, 48, 16
 END
 
 IDD_AUDIO DIALOGEX 0, 0, 244, 200
@@ -758,45 +728,9 @@ END
 
 IDD_INPUT_LARGE DIALOGEX 0, 0, 320, 258
 STYLE DS_MODALFRAME | DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "Configure Player"
+CAPTION "Controls"
 FONT 12, "MS Shell Dlg"
 BEGIN
-  LTEXT           "Gamepad:", IDC_STATIC, 10, 12, 34, 9
-  COMBOBOX        IDC_INPUT_DEVICE, 48, 9, 100, 90,
-                  CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-  LTEXT           "Pad Type:", IDC_STATIC, 226, 12, 34, 9
-  COMBOBOX        IDC_INPUT_PADTYPE, 226, 26, 84, 90,
-                  CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-  LTEXT           "Keyboard", IDC_STATIC, 74, 28, 60, 9
-  LTEXT           "Controller", IDC_STATIC, 139, 28, 71, 9
-  LTEXT           "Up", IDC_INPUT_LABEL_BASE+0, 10, 42, 60, 9
-  LTEXT           "Down", IDC_INPUT_LABEL_BASE+1, 10, 52, 60, 9
-  LTEXT           "Left", IDC_INPUT_LABEL_BASE+2, 10, 62, 60, 9
-  LTEXT           "Right", IDC_INPUT_LABEL_BASE+3, 10, 72, 60, 9
-  LTEXT           "A", IDC_INPUT_LABEL_BASE+4, 10, 82, 60, 9
-  LTEXT           "B", IDC_INPUT_LABEL_BASE+5, 10, 92, 60, 9
-  LTEXT           "C", IDC_INPUT_LABEL_BASE+6, 10, 102, 60, 9
-  LTEXT           "X", IDC_INPUT_LABEL_BASE+7, 10, 112, 60, 9
-  LTEXT           "Y", IDC_INPUT_LABEL_BASE+8, 10, 122, 60, 9
-  LTEXT           "Z", IDC_INPUT_LABEL_BASE+9, 10, 132, 60, 9
-  LTEXT           "Start", IDC_INPUT_LABEL_BASE+10, 10, 142, 60, 9
-  LTEXT           "Mode", IDC_INPUT_LABEL_BASE+11, 10, 152, 60, 9
-  LTEXT           "Fast Forward", IDC_INPUT_LABEL_BASE+12, 10, 162, 60, 9
-  LTEXT           "Rewind", IDC_INPUT_LABEL_BASE+13, 10, 172, 60, 9
-  LISTBOX         IDC_INPUT_LIST, 74, 40, 136, 140,
-                  LBS_NOTIFY | LBS_USETABSTOPS | WS_VSCROLL | WS_TABSTOP | WS_BORDER
-  PUSHBUTTON      "Assign...", IDC_INPUT_ASSIGN, 226, 60, 84, 16
-  PUSHBUTTON      "Auto Assign...", IDC_INPUT_AUTOASSIGN, 226, 80, 84, 16
-  PUSHBUTTON      "Clear", IDC_INPUT_CLEAR, 226, 100, 84, 16
-  PUSHBUTTON      "Restore Defaults", IDC_INPUT_DEFAULTS, 226, 120, 84, 16
-  LTEXT           "Pick a button, choose Assign, then press the key you want.",
-                  IDC_INPUT_HINT, 10, 186, 300, 18
-  LTEXT           "Deadzone", IDC_INPUT_DEADZONE_LABEL, 10, 210, 60, 9
-  CONTROL         "", IDC_INPUT_DEADZONE, "msctls_trackbar32",
-                  TBS_HORZ | TBS_AUTOTICKS | WS_TABSTOP, 74, 206, 180, 20
-  RTEXT           "", IDC_INPUT_DEADZONE_TEXT, 258, 210, 34, 9
-  DEFPUSHBUTTON   "Save", IDOK, 208, 234, 50, 16
-  PUSHBUTTON      "Cancel", IDCANCEL, 262, 234, 48, 16
 END
 
 IDD_AUDIO_LARGE DIALOGEX 0, 0, 244, 200

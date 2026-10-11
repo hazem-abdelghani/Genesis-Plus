@@ -264,8 +264,8 @@ maximized state between runs.
 | Right Shift | Mode |
 
 A connected gamepad works with no setup, laid out the way a 6-button Control
-Pad expects: face buttons give B and C, X gives A, the shoulders give X and Z.
-Change any of it under **Input → Configure Player**.
+Pad expects: the left stick and D-pad move, the Xbox X, A and B buttons give A, B and C, Y gives X, RB gives Y, RT gives Z, Start is Start and Back is Mode. LB fast-forwards and LT rewinds.
+Change any of it under **Input → Controls**.
 **Input → Enable Background Input** keeps the controls working while another
 window has focus (keyboard pad keys and gamepads only; hotkeys and the mouse
 still need the emulator window to be active).
@@ -280,6 +280,7 @@ still need the emulator window to be active).
 | Ctrl+R / Ctrl+Shift+R | Reset / hard reset |
 | Ctrl+C | Cheats |
 | Ctrl+F | Search the game list |
+| Ctrl+D | Toggle favorite (selected game) |
 | F2 | Pause and resume |
 | F3 | Stop the ROM |
 | F5 / F8 | Save / load the current slot |
@@ -575,15 +576,16 @@ The same page is in the program under **Help → Menu Guide**.
 **View**
 
 - **View Mode** – List View or Grid View: how the game browser shows your games.
-- **List Columns** – Choose which columns the list view shows: Console, Folder and Size (Name is always shown). Right-clicking the column header does the same.
+- **List Columns** – Choose which columns the list view shows: Favorite (a star: click it to mark a game as a favorite), Console, Folder and Size (Name is always shown). Right-clicking the column header does the same.
 - **Theme** – System (follow Windows), Light or Dark.
 - **Larger UI** – Bigger menus and dialogs.
-- **Show Toolbar, Show Search Bar, Show Filter Bar** – Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, play, stop, reset, pause, start in fullscreen, screenshot, settings and the Player 1 controls. The toolbar stays above the game while it runs in a window and goes away in fullscreen. The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, region (read from tags such as (USA) in the file name) and folder.
+- **Show Favorites Only, Toggle Favorite (Ctrl+D)** – Mark the selected game as a favorite (or click its star in the Favorite column; the right-click menu has Add To Favorites too). Show Favorites Only, or the star on the toolbar, hides every other game. Sorting by the Favorite column puts your favorites first.
+- **Show Toolbar, Show Search Bar, Show Filter Bar** – Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, play, stop, reset, pause, start in fullscreen, screenshot, settings, the Video and Audio settings tabs and the player controls; a star button next to Refresh shows only your favorites. The toolbar stays above the game while it runs in a window and goes away in fullscreen. The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, genre (looked up from the game's title in a table built into the program; a game that is not in it is listed as Unknown) and region (read from tags such as (USA) in the file name).
 - **Reset Window Size** – Puts the window back at the size chosen under Video → Window Size.
 
 **Video**
 
-- **Window Size** – 1x to 6x.
+- **Window Size** – 1x to 6x (3x to start with).
 - **Fullscreen (Alt+Enter), Start ROM in Fullscreen** – Esc also toggles fullscreen. In fullscreen, move the mouse to the top edge of the screen to show the menu bar; it hides again when the mouse moves away. The mouse cursor stays visible in fullscreen and hides itself after a few idle seconds. Closing the ROM leaves fullscreen and returns to the selected window size.
 - **Always on Top** – Keeps the window above every other window.
 - **Render Filter** – Pixel-art scalers and CRT looks (Scale2x, Smooth, xBRZ, Scanlines, CRT...) applied before the picture is shown.
@@ -609,7 +611,7 @@ The same page is in the program under **Help → Menu Guide**.
 
 **Input**
 
-- **Configure Player 1 / 2...** – Assign keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.
+- **Controls...** – One window with a tab for Player 1 and one for Player 2, laid out around a picture of the pad. Click a button, then press the key or gamepad button you want (right-click a button to clear it; clicking its spot on the picture works too). Auto Assign goes through them all in turn. Pressing a mapped key or gamepad button lights its spot on the picture, so you can check a pad. Set keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.
 - **Port A / Port B Device** – What is plugged in: Control Pad, Mouse, a light gun (Light Phaser, Menacer or Justifier, depending on the port), XE-1AP analog joystick, Activator, Paddle Control, Sports Pad, Graphic Board (Pico's drawing tablet), or a 4-player Team Player adapter — not every device is on both ports.
 - **Enable Background Input** – Keep reading the controller while another window has focus.
 
@@ -623,7 +625,7 @@ The same page is in the program under **Help → Menu Guide**.
 
 **Options**
 
-- **Settings...** – Every option of the menus on tabs (View, Emulation, Video, Audio, Input, Tools and Options). A change takes effect at once, exactly as if you had used the menu; the windows that have their own settings open from a button.
+- **Settings...** – Every option of the menus on tabs (General, Video, Audio, Input and Options). Hover over an option for a short description (it hides after 30 seconds). Restore Defaults (bottom left) puts every setting on all tabs back to its default, keeping your controls, ROM folder and cheats. A change takes effect at once, exactly as if you had used the menu; the windows that have their own settings open from a button.
 - **Region** – Which region the console reports to the game: detect from the ROM, USA, Europe or Japan.
 - **Force VDP Mode** – Run the video timing at 60 Hz (NTSC) or 50 Hz (PAL) whatever the region says.
 - **Console** – Detect the console from the game, or force a specific model.

@@ -777,7 +777,11 @@ void gui_update_menu(void)
       CheckMenuItem(g_menu, IDM_VIEW_COL_BASE + c,
                     MF_BYCOMMAND | ((c == 0 || !browser_column_hidden(c)) ? MF_CHECKED : MF_UNCHECKED));
     EnableMenuItem(g_menu, IDM_VIEW_COL_BASE, MF_BYCOMMAND | MF_GRAYED);   /* Name is always shown */
+    CheckMenuItem(g_menu, IDM_VIEW_COL_FAV, MF_BYCOMMAND | (browser_column_hidden(4) ? MF_UNCHECKED : MF_CHECKED));
   }
+  CheckMenuItem(g_menu, IDM_VIEW_FAVONLY, MF_BYCOMMAND | (browser_favorites_only() ? MF_CHECKED : MF_UNCHECKED));
+  EnableMenuItem(g_menu, IDM_VIEW_FAVONLY, MF_BYCOMMAND | (emu_running ? MF_GRAYED : MF_ENABLED));
+  EnableMenuItem(g_menu, IDM_VIEW_TOGGLEFAV, MF_BYCOMMAND | (emu_running ? MF_GRAYED : MF_ENABLED));
   CheckMenuItem(g_menu, IDM_VIEW_TOOLBAR, MF_BYCOMMAND | (gui.hide_toolbar ? MF_UNCHECKED : MF_CHECKED));
   CheckMenuItem(g_menu, IDM_VIEW_SEARCHBAR, MF_BYCOMMAND | (browser_search_shown() ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_VIEW_FILTERBAR, MF_BYCOMMAND | (gui.hide_filterbar ? MF_UNCHECKED : MF_CHECKED));
@@ -2996,6 +3000,26 @@ static void on_command(int id)
     return;
   }
 
+  if (id == IDM_VIEW_COL_FAV)
+  {
+    browser_toggle_column(4);
+    gui_update_menu();
+    return;
+  }
+
+  if (id == IDM_VIEW_FAVONLY)
+  {
+    browser_toggle_favorites_only();
+    gui_update_menu();
+    return;
+  }
+
+  if (id == IDM_VIEW_TOGGLEFAV)
+  {
+    browser_toggle_favorite();
+    return;
+  }
+
   if (id == IDM_VIEW_TOOLBAR || id == IDM_VIEW_FILTERBAR)
   {
     if (id == IDM_VIEW_TOOLBAR)   gui.hide_toolbar   = !gui.hide_toolbar;
@@ -3009,6 +3033,12 @@ static void on_command(int id)
   if (id == IDM_OPTIONS_SETTINGS)
   {
     dlg_settings(g_hwnd);
+    return;
+  }
+
+  if (id == IDM_OPTIONS_SETTINGS_VIDEO || id == IDM_OPTIONS_SETTINGS_AUDIO)
+  {
+    dlg_settings_tab(g_hwnd, id == IDM_OPTIONS_SETTINGS_VIDEO ? 1 : 2);   /* Video, Audio */
     return;
   }
 
@@ -3566,6 +3596,8 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
       LRESULT sb = theme_statusbar_customdraw((NMHDR *)lp, g_status);
       if (sb != -1) return sb;
       sb = theme_header_customdraw((NMHDR *)lp);
+      if (sb != -1) return sb;
+      sb = browser_list_customdraw((NMHDR *)lp);
       if (sb != -1) return sb;
       if (browser_panel_handle_notify((NMHDR *)lp)) return 0;
       return 0;

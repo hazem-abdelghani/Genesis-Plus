@@ -8,7 +8,7 @@
  *  item sends, and the control then shows whatever the menu now says (its
  *  check marks), so the two can never disagree and no option is handled
  *  twice. Items that open a window of their own (Levels and Latency,
- *  Configure Player...) are buttons that close this window and open that one.
+ *  Controls...) are buttons that close this window and open that one.
  ****************************************************************************/
 
 #include <windows.h>
@@ -31,18 +31,17 @@ typedef struct
   int id;                          /* command (check, button) or first command of the group (choice) */
   int n;                           /* choice: number of entries */
   const char *const *items;
+  const char *tip;                 /* its tooltip */
 } SRow;
 
 typedef struct { const char *title; const SRow *rows; int count; } SPage;
 
-#define CHECK(l, id)          { K_CHECK,  l, id, 0, NULL }
-#define CHOICE(l, id, items)  { K_CHOICE, l, id, (int)(sizeof(items) / sizeof(items[0])), items }
-#define BUTTON(l, id)         { K_BUTTON, l, id, 0, NULL }
+#define CHECK(l, id, tip)          { K_CHECK,  l, id, 0, NULL, tip }
+#define CHOICE(l, id, items, tip)  { K_CHOICE, l, id, (int)(sizeof(items) / sizeof(items[0])), items, tip }
+#define BUTTON(l, id, tip)         { K_BUTTON, l, id, 0, NULL, tip }
 
 static const char *const it_viewmode[] = { "List View", "Grid View" };
 static const char *const it_theme[]    = { "System", "Light", "Dark" };
-static const char *const it_slot[]     = { "Slot 0", "Slot 1", "Slot 2", "Slot 3", "Slot 4",
-                                           "Slot 5", "Slot 6", "Slot 7", "Slot 8", "Slot 9" };
 static const char *const it_scale[]    = { "1x", "2x", "3x", "4x", "5x", "6x" };
 static const char *const it_lcd[]      = { "Off", "Light", "Medium", "Heavy" };
 static const char *const it_scan[]     = { "Off", "25%", "50%", "75%", "100%" };
@@ -72,97 +71,85 @@ static const char *const it_lockon[]   = { "None", "Game Genie", "Action Replay 
 
 static const SRow rows_view[] =
 {
-  CHOICE("View mode:",            IDM_VIEW_LIST, it_viewmode),
-  CHECK ("Show the Console column", IDM_VIEW_COL_BASE + 1),
-  CHECK ("Show the Folder column",  IDM_VIEW_COL_BASE + 2),
-  CHECK ("Show the Size column",    IDM_VIEW_COL_BASE + 3),
-  CHOICE("Theme:",                IDM_VIDEO_THEME_BASE, it_theme),
-  CHECK ("Larger UI",             IDM_VIDEO_LARGE_UI),
-  CHECK ("Show Toolbar",          IDM_VIEW_TOOLBAR),
-  CHECK ("Show Search Bar",       IDM_VIEW_SEARCHBAR),
-  CHECK ("Show Filter Bar",       IDM_VIEW_FILTERBAR),
-};
-
-static const SRow rows_emulation[] =
-{
-  CHECK ("Enable Rewind",         IDM_EMU_REWIND),
-  CHECK ("Pause When Inactive",   IDM_EMU_PAUSE_UNFOCUSED),
-  CHOICE("Save slot:",            IDM_FILE_SLOT_BASE, it_slot),
+  CHOICE("View mode:",            IDM_VIEW_LIST, it_viewmode, "How the game browser shows your games: a list or a grid of covers."),
+  CHECK ("Show the Console column", IDM_VIEW_COL_BASE + 1, "Show the Console column in the list view."),
+  CHECK ("Show the Folder column",  IDM_VIEW_COL_BASE + 2, "Show the Folder column in the list view."),
+  CHECK ("Show the Size column",    IDM_VIEW_COL_BASE + 3, "Show the Size column in the list view."),
+  CHECK ("Show the Favorite column", IDM_VIEW_COL_FAV, "Show the star column in the list view. Click a star to make a game a favorite (Ctrl+D does it for the selected game)."),
+  CHOICE("Theme:",                IDM_VIDEO_THEME_BASE, it_theme, "System follows Windows; Light or Dark forces one."),
+  CHECK ("Larger UI",             IDM_VIDEO_LARGE_UI, "Bigger menus, dialogs and toolbar."),
+  CHECK ("Show Toolbar",          IDM_VIEW_TOOLBAR, "Show the row of buttons above the game list. It stays above the game while it runs in a window."),
+  CHECK ("Show Search Bar",       IDM_VIEW_SEARCHBAR, "Show the search box that narrows the game list as you type (Ctrl+F jumps to it)."),
+  CHECK ("Show Filter Bar",       IDM_VIEW_FILTERBAR, "Show the bar that narrows the list by console, region and folder."),
+  CHECK ("Show Favorites Only",   IDM_VIEW_FAVONLY, "Show only the games marked as favorites."),
+  CHECK ("Enable Rewind",         IDM_EMU_REWIND, "Keep a history of recent play so holding Backspace runs it backwards. Uses about 200 MB and some CPU; not available during netplay."),
+  CHECK ("Pause When Inactive",   IDM_EMU_PAUSE_UNFOCUSED, "Pause the game while another window has focus."),
+  CHOICE("Screenshot output:",    IDM_TOOLS_SHOT_BASE, it_shot, "Final: the render filter applied, stretched to 4:3. Corrected: the plain picture at 640x480. Raw: exactly what the emulator drew, at its own size."),
 };
 
 static const SRow rows_video[] =
 {
-  CHOICE("Window size:",          IDM_VIDEO_SCALE_BASE, it_scale),
-  CHECK ("Start ROM in Fullscreen", IDM_VIDEO_FULLSCREEN_START),
-  CHECK ("Always on Top",         IDM_VIDEO_ALWAYS_ON_TOP),
-  { K_FILTER, "Render filter:", 0, 0, NULL },
-  CHECK ("Smooth Scaling",        IDM_VIDEO_SMOOTH),
-  CHECK ("Brighten",              IDM_VIDEO_BRIGHTEN),
-  CHECK ("VSync",                 IDM_VIDEO_VSYNC),
-  { K_BREAK, NULL, 0, 0, NULL },
-  CHOICE("NTSC filter:",          IDM_VIDEO_NTSC_BASE, it_ntsc),
-  CHOICE("Aspect ratio:",         IDM_VIDEO_ASPECT_BASE, it_aspect),
-  CHOICE("Borders:",              IDM_VIDEO_OVERSCAN_BASE, it_borders),
-  CHOICE("Interlaced mode:",      IDM_VIDEO_INTERLACE_BASE, it_interlace),
-  CHOICE("Frameskip:",            IDM_VIDEO_FRAMESKIP_BASE, it_frameskip),
-  CHOICE("Renderer:",             IDM_VIDEO_RENDERER_BASE, it_renderer),
-  CHOICE("LCD ghosting:",         IDM_VIDEO_LCD_BASE, it_lcd),
-  CHOICE("Scanlines:",            IDM_VIDEO_SCANLINE_BASE, it_scan),
+  CHOICE("Window size:",          IDM_VIDEO_SCALE_BASE, it_scale, "Size of the game window, 1x to 6x the console's picture."),
+  CHECK ("Start ROM in Fullscreen", IDM_VIDEO_FULLSCREEN_START, "Start every game in fullscreen. Esc or Alt+Enter toggles it."),
+  CHECK ("Always on Top",         IDM_VIDEO_ALWAYS_ON_TOP, "Keep the window above every other window."),
+  { K_FILTER, "Render filter:", 0, 0, NULL, "Pixel-art scalers and CRT looks (Scale2x, Smooth, xBRZ, Scanlines, CRT...) applied before the picture is shown." },
+  CHECK ("Smooth Scaling",        IDM_VIDEO_SMOOTH, "Soft edges when the picture is enlarged."),
+  CHECK ("Brighten",              IDM_VIDEO_BRIGHTEN, "A gentle brightness lift."),
+  CHECK ("VSync",                 IDM_VIDEO_VSYNC, "Wait for the screen's refresh after each frame so motion is even. Skipped for a frame whenever the sound buffer runs low, so it never causes crackle."),
+  { K_BREAK, NULL, 0, 0, NULL, NULL },
+  CHOICE("NTSC filter:",          IDM_VIDEO_NTSC_BASE, it_ntsc, "Composite, S-Video or RGB television look."),
+  CHOICE("Aspect ratio:",         IDM_VIDEO_ASPECT_BASE, it_aspect, "Square pixels, 4:3 as on a CRT, or fill the window."),
+  CHOICE("Borders:",              IDM_VIDEO_OVERSCAN_BASE, it_borders, "Hide or show the overscan borders (top/bottom, left/right)."),
+  CHOICE("Interlaced mode:",      IDM_VIDEO_INTERLACE_BASE, it_interlace, "Single Field (the default) or Double Field, for games that use the 448-line interlaced mode."),
+  CHOICE("Frameskip:",            IDM_VIDEO_FRAMESKIP_BASE, it_frameskip, "Skip drawing some frames on a slow PC: Off, Auto, or Manual by audio-buffer level. Not used during netplay or recording."),
+  CHOICE("Renderer:",             IDM_VIDEO_RENDERER_BASE, it_renderer, "GDI draws with the CPU; Direct3D 9 and 11 use the graphics card (each falls back to GDI if unavailable). GPU shaders need Direct3D 11."),
+  CHOICE("LCD ghosting:",         IDM_VIDEO_LCD_BASE, it_lcd, "Bright pixels fade slowly, like a handheld screen."),
+  CHOICE("Scanlines:",            IDM_VIDEO_SCANLINE_BASE, it_scan, "Dark lines between rows: Off, 25, 50, 75 or 100%."),
 #ifdef _WIN64
-  { K_SHADER, "GPU shader:", 0, 0, NULL },      /* along the bottom, under both columns */
+  { K_SHADER, "GPU shader:", 0, 0, NULL, "Run a librashader (.slangp) shader chain on top of the picture. Direct3D 11 only." },      /* along the bottom, under both columns */
 #endif
 };
 
 static const SRow rows_audio[] =
 {
-  CHECK ("Mute",                  IDM_AUDIO_ENABLE),
-  CHOICE("FM chip:",              IDM_AUDIO_FMCORE_BASE, it_fm),
-  CHOICE("Sample rate:",          IDM_AUDIO_RATE_BASE, it_rate),
-  CHECK ("High-Quality PSG Resampling", IDM_AUDIO_HQPSG),
-  CHECK ("Low-Pass Filter",       IDM_AUDIO_LOWPASS),
-  CHECK ("Mono Output",           IDM_AUDIO_MONO),
-  BUTTON("Levels and Latency...", IDM_AUDIO_SETTINGS),
-  BUTTON("Advanced...",           IDM_AUDIO_ADVANCED),
+  CHECK ("Mute",                  IDM_AUDIO_ENABLE, "Silence the sound; untick to hear it again."),
+  CHOICE("FM chip:",              IDM_AUDIO_FMCORE_BASE, it_fm, "Which Genesis FM sound chip is emulated: YM2612 or YM3438, the Nuked versions (default YM2612 Nuked) or MAME."),
+  CHOICE("Sample rate:",          IDM_AUDIO_RATE_BASE, it_rate, "Audio sample rate: 44100 or 48000 Hz."),
+  CHECK ("High-Quality PSG Resampling", IDM_AUDIO_HQPSG, "Cleaner sound from the PSG (the console's square-wave chip)."),
+  CHECK ("Low-Pass Filter",       IDM_AUDIO_LOWPASS, "A soft high-frequency roll-off."),
+  CHECK ("Mono Output",           IDM_AUDIO_MONO, "Mix the sound to mono instead of stereo."),
+  BUTTON("Levels and Latency...", IDM_AUDIO_SETTINGS, "Master volume, FM and PSG levels, CD audio, and how many frames of sound are buffered."),
+  BUTTON("Advanced...",           IDM_AUDIO_ADVANCED, "Audio filter (Off, Low-Pass or 3-Band EQ), High-Quality FM, Master System FM, and Sega CD PCM volume."),
 };
 
 static const SRow rows_input[] =
 {
-  BUTTON("Configure Player 1...", IDM_INPUT_P1),
-  BUTTON("Configure Player 2...", IDM_INPUT_P2),
-  CHOICE("Port A device:",        IDM_INPUT_PORTA_BASE, it_porta),
-  CHOICE("Port B device:",        IDM_INPUT_PORTB_BASE, it_portb),
-  CHECK ("Enable Background Input", IDM_INPUT_BACKGROUND),
-};
-
-static const SRow rows_tools[] =
-{
-  CHOICE("Screenshot output:",    IDM_TOOLS_SHOT_BASE, it_shot),
-  BUTTON("Cheats...",             IDM_EMU_CHEATS),
-  BUTTON("Netplay...",            IDM_TOOLS_NETPLAY),
+  BUTTON("Controls...",  IDM_INPUT_P1, "Set keyboard keys and gamepad buttons for Player 1 and Player 2, the hotkeys and the stick deadzone."),
+  CHOICE("Port A device:",        IDM_INPUT_PORTA_BASE, it_porta, "What is plugged into controller port A: a pad, mouse, light gun, Team Player and so on."),
+  CHOICE("Port B device:",        IDM_INPUT_PORTB_BASE, it_portb, "What is plugged into controller port B: a pad, mouse, light gun, Team Player and so on."),
+  CHECK ("Enable Background Input", IDM_INPUT_BACKGROUND, "Keep reading the keyboard pad keys and gamepads while another window has focus."),
 };
 
 static const SRow rows_options[] =
 {
-  CHOICE("Region:",               IDM_EMU_REGION_BASE, it_region),
-  CHOICE("Force VDP mode:",       IDM_EMU_VDPMODE_BASE, it_vdp),
-  CHOICE("Console:",              IDM_EMU_SYSTEM_BASE, it_console),
-  CHOICE("Lock-on cartridge:",    IDM_EMU_LOCKON_BASE, it_lockon),
-  CHECK ("Boot from BIOS When Available", IDM_EMU_BIOS),
-  CHECK ("Emulate Address Error Exceptions", IDM_EMU_ADDRERROR),
-  CHECK ("Show Extended Game Gear Screen", IDM_VIDEO_GGEXTRA),
-  CHECK ("Show Master System Side Borders", IDM_VIDEO_SMSBORDER),
-  CHECK ("Show Frame Rate",       IDM_VIDEO_SHOWFPS),
+  CHOICE("Region:",               IDM_EMU_REGION_BASE, it_region, "Which region the console reports to the game: detect from the ROM, USA, Europe or Japan."),
+  CHOICE("Force VDP mode:",       IDM_EMU_VDPMODE_BASE, it_vdp, "Run the video timing at 60 Hz (NTSC) or 50 Hz (PAL) whatever the region says."),
+  CHOICE("Console:",              IDM_EMU_SYSTEM_BASE, it_console, "Detect the console from the game, or force a specific model."),
+  CHOICE("Lock-on cartridge:",    IDM_EMU_LOCKON_BASE, it_lockon, "Attach a Game Genie, Action Replay or Sonic & Knuckles to the game."),
+  CHECK ("Boot from BIOS When Available", IDM_EMU_BIOS, "Run the console's start-up ROM when a BIOS file is present in the bios folder."),
+  CHECK ("Emulate Address Error Exceptions", IDM_EMU_ADDRERROR, "Hardware-accurate crashes on bad memory access; turn off only for a few hacked games."),
+  CHECK ("Show Extended Game Gear Screen", IDM_VIDEO_GGEXTRA, "Show the whole Game Gear picture instead of only the part its screen displayed."),
+  CHECK ("Show Master System Side Borders", IDM_VIDEO_SMSBORDER, "Show the 8-pixel columns at each side, which are cropped by default."),
+  CHECK ("Show Frame Rate",       IDM_VIDEO_SHOWFPS, "Show frames per second on screen."),
 };
 
 #define PAGE(t, r) { t, r, (int)(sizeof(r) / sizeof(r[0])) }
 static const SPage pages[] =
 {
-  PAGE("View",      rows_view),
-  PAGE("Emulation", rows_emulation),
+  PAGE("General",   rows_view),
   PAGE("Video",     rows_video),
   PAGE("Audio",     rows_audio),
   PAGE("Input",     rows_input),
-  PAGE("Tools",     rows_tools),
   PAGE("Options",   rows_options),
 };
 #define NPAGES ((int)(sizeof(pages) / sizeof(pages[0])))
@@ -288,7 +275,7 @@ static void sync_shader(void)
  * keeps a white body and frame in dark mode).
  ****************************************************************************/
 
-#define TABS_CHANGED 0x1000        /* notification code of WM_COMMAND, selection in the control's userdata */
+#define TABS_CHANGED GP_TABS_CHANGED   /* notification code of WM_COMMAND, selection in the control's userdata */
 
 static int tabs_hot = -1;
 
@@ -310,11 +297,25 @@ static void tabs_colors(COLORREF *face, COLORREF *page, COLORREF *idle, COLORREF
   *border = dark ? RGB(95, 95, 95)    : RGB(160, 160, 160);
 }
 
+/* The strip shows the Settings pages unless a window gave it its own titles
+   (settings_set_tabs). */
+static int tab_count(HWND h)
+{
+  int n = (int)(INT_PTR)GetPropA(h, "gp_ntabs");
+  return n ? n : NPAGES;
+}
+
+static const char *tab_title(HWND h, int i)
+{
+  const char *const *t = (const char *const *)GetPropA(h, "gp_tabs");
+  return t ? t[i] : pages[i].title;
+}
+
 /* Width of tab i: its text and some room either side. */
-static int tab_width(HDC dc, int i)
+static int tab_width(HWND h, HDC dc, int i)
 {
   SIZE sz;
-  GetTextExtentPoint32A(dc, pages[i].title, lstrlenA(pages[i].title), &sz);
+  GetTextExtentPoint32A(dc, tab_title(h, i), lstrlenA(tab_title(h, i)), &sz);
   return sz.cx + 2 * TBS(14);
 }
 
@@ -327,9 +328,9 @@ static int tab_at(HWND h, int x, int y)
   int i, left = TAB_LEFT, hit = -1;
 
   if (y < tab_h())
-    for (i = 0; i < NPAGES; i++)
+    for (i = 0; i < tab_count(h); i++)
     {
-      int w = tab_width(dc, i);
+      int w = tab_width(h, dc, i);
       if (x >= left && x < left + w) { hit = i; break; }
       left += w;
     }
@@ -352,9 +353,9 @@ static int tab_span(int sel, int *x0, int *x1)
 
   dc = GetDC(s_tabs);
   old = (HFONT)SelectObject(dc, (HFONT)SendMessage(GetParent(s_tabs), WM_GETFONT, 0, 0));
-  for (i = 0; i < sel; i++) left += tab_width(dc, i);
+  for (i = 0; i < sel; i++) left += tab_width(s_tabs, dc, i);
   *x0 = left - TBS(1);
-  *x1 = left + tab_width(dc, sel) + TBS(1);
+  *x1 = left + tab_width(s_tabs, dc, sel) + TBS(1);
   SelectObject(dc, old);
   ReleaseDC(s_tabs, dc);
   return 1;
@@ -362,7 +363,7 @@ static int tab_span(int sel, int *x0, int *x1)
 
 static void tabs_select(HWND h, int sel)
 {
-  if (sel < 0 || sel >= NPAGES || sel == (int)GetWindowLongPtr(h, GWLP_USERDATA)) return;
+  if (sel < 0 || sel >= tab_count(h) || sel == (int)GetWindowLongPtr(h, GWLP_USERDATA)) return;
   SetWindowLongPtr(h, GWLP_USERDATA, sel);
   InvalidateRect(h, NULL, FALSE);
   SendMessage(GetParent(h), WM_COMMAND, MAKEWPARAM(GetDlgCtrlID(h), TABS_CHANGED), (LPARAM)h);
@@ -402,9 +403,9 @@ static LRESULT CALLBACK tabs_proc(HWND h, UINT m, WPARAM w, LPARAM l)
       FillRect(dc, &r, bborder);
 
       SetBkMode(dc, TRANSPARENT);
-      for (i = 0; i < NPAGES; i++)
+      for (i = 0; i < tab_count(h); i++)
       {
-        int tw = tab_width(dc, i);
+        int tw = tab_width(h, dc, i);
         int is_sel = (i == sel);
         RECT t;
         HBRUSH bt;
@@ -423,7 +424,7 @@ static LRESULT CALLBACK tabs_proc(HWND h, UINT m, WPARAM w, LPARAM l)
         DeleteObject(bt);
 
         SetTextColor(dc, is_sel ? text : dim);
-        { RECT tx = t; if (!is_sel) tx.top += 1; DrawTextA(dc, pages[i].title, -1, &tx, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX); }
+        { RECT tx = t; if (!is_sel) tx.top += 1; DrawTextA(dc, tab_title(h, i), -1, &tx, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX); }
 
         if (is_sel && GetFocus() == h)                    /* the dotted focus rectangle, as in classic tabs */
         {
@@ -574,6 +575,35 @@ static int row_span(const SRow *r)
   return (r->kind == K_SHADER || r->kind == K_BREAK) ? 0 : 1;     /* the shader box sits under the columns, outside them */
 }
 
+/* One tooltip window serves every control; it hides itself after 30 seconds. */
+static HWND s_tip;
+static int s_start_tab;          /* which tab the dialog opens on */
+#define TIP_AUTOPOP_MS 30000
+
+static void add_tip(HWND dlg, HWND ctl, const char *text, HFONT font)
+{
+  TOOLINFOA ti;
+
+  if (!ctl || !text) return;
+  if (!s_tip)
+  {
+    s_tip = CreateWindowExA(WS_EX_TOPMOST, TOOLTIPS_CLASSA, NULL, WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+                            0, 0, 0, 0, dlg, NULL, g_inst, NULL);
+    if (!s_tip) return;
+    SendMessage(s_tip, TTM_SETMAXTIPWIDTH, 0, TBS(320));
+    SendMessage(s_tip, TTM_SETDELAYTIME, TTDT_AUTOPOP, TIP_AUTOPOP_MS);
+    SendMessage(s_tip, TTM_SETDELAYTIME, TTDT_INITIAL, 400);
+    SendMessage(s_tip, WM_SETFONT, (WPARAM)font, FALSE);
+  }
+  memset(&ti, 0, sizeof(ti));
+  ti.cbSize = sizeof(ti);
+  ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+  ti.hwnd = dlg;
+  ti.uId = (UINT_PTR)ctl;
+  ti.lpszText = (LPSTR)text;
+  SendMessageA(s_tip, TTM_ADDTOOLA, 0, (LPARAM)&ti);
+}
+
 static void build_page(HWND dlg, int p, const RECT *rc, HFONT font)
 {
   const SPage *pg = &pages[p];
@@ -644,13 +674,16 @@ static void build_page(HWND dlg, int p, const RECT *rc, HFONT font)
 
       SendMessage(s_shader_edit, WM_SETFONT, (WPARAM)font, TRUE);
       SendMessage(s_shader_browse, WM_SETFONT, (WPARAM)font, TRUE);
+      add_tip(dlg, s_shader_edit, "The shader preset (.slangp) to run.", font);
+      add_tip(dlg, s_shader_browse, "Choose a shader preset file.", font);
     }
     else   /* K_CHOICE, K_FILTER */
     {
       int lw = colw * 2 / 5, k;
-      HWND lab = CreateWindowExA(0, "STATIC", r->label, WS_CHILD | WS_VISIBLE | SS_LEFT,
+      HWND lab = CreateWindowExA(0, "STATIC", r->label, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOTIFY,
                                  x, y + TBS(4), lw - TBS(6), TBS(18), s_page[p], NULL, g_inst, NULL);
       SendMessage(lab, WM_SETFONT, (WPARAM)font, TRUE);
+      add_tip(dlg, lab, r->tip, font);
 
       c = CreateWindowExA(0, "COMBOBOX", "", WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
                           x + lw, y, colw - lw, TBS(240), s_page[p], (HMENU)(INT_PTR)(ROW_ID_BASE + idx), g_inst, NULL);
@@ -669,6 +702,7 @@ static void build_page(HWND dlg, int p, const RECT *rc, HFONT font)
     }
 
     s_ctl[idx] = c;
+    add_tip(dlg, c, r->tip, font);
     if (c && r->kind != K_CHOICE && r->kind != K_FILTER) SendMessage(c, WM_SETFONT, (WPARAM)font, TRUE);
   }
 }
@@ -683,6 +717,73 @@ static void show_page(int p)
   for (i = 0; i < NPAGES; i++) ShowWindow(s_page[i], i == p ? SW_SHOW : SW_HIDE);
 }
 
+/* Puts every setting on these tabs back to its default. The defaults are read
+   the way the rows are: set_config_defaults() is run for a moment, the menu
+   marks it gives are noted, the real values are put back, and then each
+   row that differs is changed with the same command the menu sends -- so
+   every change takes effect exactly as if it had been made by hand.
+   Controls, the ROM folder, cheats and the window's place are left alone. */
+static void restore_defaults(HWND dlg)
+{
+  int def[MAX_ROWS], i, k, theme_before = gui.theme_mode;
+  t_gui_config og = gui;
+  t_config oc = config;
+  uint8 os0 = input.system[0], os1 = input.system[1];
+
+  if (MessageBoxA(dlg, "Put every setting in this window back to its default?\\n\\n"
+                       "Your controls, ROM folder and cheats are kept.",
+                  "Restore Defaults", MB_YESNO | MB_ICONQUESTION) != IDYES)
+    return;
+
+  set_config_defaults();
+  gui_update_menu();
+  for (i = 0; i < s_nrows; i++)
+  {
+    const SRow *r = s_row[i];
+    def[i] = 0;
+    if (r->kind == K_CHECK) def[i] = menu_checked(r->id) ? 1 : 0;
+    else if (r->kind == K_CHOICE)
+      for (k = 0; k < r->n; k++)
+        if (menu_checked(r->id + k)) { def[i] = k; break; }
+    if (r->kind == K_CHECK && r->id == IDM_VIEW_SEARCHBAR) def[i] = 0;
+    if (r->kind == K_CHECK && ((r->id > IDM_VIEW_COL_BASE && r->id < IDM_VIEW_COL_BASE + 4) || r->id == IDM_VIEW_COL_FAV)) def[i] = 1;   /* every column shown */   /* off by default, whatever the menu reads from (Ctrl+F can force it on) */
+  }
+
+  gui = og;
+  config = oc;
+  input.system[0] = os0;
+  input.system[1] = os1;
+  gui_update_menu();
+
+  for (i = 0; i < s_nrows; i++)
+  {
+    const SRow *r = s_row[i];
+
+    if (r->kind == K_CHECK)
+    {
+      if ((menu_checked(r->id) ? 1 : 0) != def[i]) SendMessage(g_hwnd, WM_COMMAND, MAKEWPARAM(r->id, 0), 0);
+    }
+    else if (r->kind == K_CHOICE)
+    {
+      int cur = -1;
+      for (k = 0; k < r->n; k++)
+        if (menu_checked(r->id + k)) { cur = k; break; }
+      if (cur != def[i]) SendMessage(g_hwnd, WM_COMMAND, MAKEWPARAM(r->id + def[i], 0), 0);
+    }
+    else if (r->kind == K_FILTER)
+    {
+      if (video_filter_current() >= 0) SendMessage(g_hwnd, WM_COMMAND, MAKEWPARAM(IDM_VIDEO_FILTER_NONE, 0), 0);
+    }
+    else if (r->kind == K_SHADER)
+    {
+      if (gui.shader_preset_path[0]) gui_set_shader(NULL);
+    }
+  }
+
+  if (gui.theme_mode != theme_before) PostMessage(dlg, WM_APP + 1, 0, 0);
+  sync_all();
+}
+
 static INT_PTR CALLBACK settings_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
 {
   switch (msg)
@@ -694,6 +795,7 @@ static INT_PTR CALLBACK settings_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
       RECT rc, trc;
       int p;
       s_nrows = 0;
+      s_tip = NULL;
       tabs_hot = -1;
       SetRectEmpty(&s_frame_rc);
       s_frame_page = NULL;
@@ -715,6 +817,20 @@ static INT_PTR CALLBACK settings_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
       }
 
       for (p = 0; p < NPAGES; p++) build_page(dlg, p, &rc, font);
+
+      /* Restore Defaults sits at the left, level with Close. */
+      {
+        RECT btn;
+        HWND rd;
+        GetWindowRect(GetDlgItem(dlg, IDOK), &btn);
+        MapWindowPoints(NULL, dlg, (POINT *)&btn, 2);
+        rd = CreateWindowExA(0, "BUTTON", "Restore Defaults", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                             trc.left, btn.top, (btn.right - btn.left) * 5 / 2, btn.bottom - btn.top, dlg,
+                             (HMENU)(INT_PTR)IDC_SETTINGS_DEFAULTS, g_inst, NULL);
+        SendMessage(rd, WM_SETFONT, (WPARAM)font, TRUE);
+        add_tip(dlg, rd, "Put every setting in this window back to its default. Controls, ROM folder and cheats are kept.", font);
+      }
+      if (s_start_tab) { SetWindowLongPtr(tab, GWLP_USERDATA, s_start_tab); show_page(s_start_tab); }
 
       theme_apply_to_window(dlg);
       sync_all();
@@ -827,6 +943,12 @@ static INT_PTR CALLBACK settings_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
         return TRUE;
       }
 
+      if (id == IDC_SETTINGS_DEFAULTS && code == BN_CLICKED)
+      {
+        restore_defaults(dlg);
+        return TRUE;
+      }
+
       if (id == IDOK || id == IDCANCEL)
       {
         EndDialog(dlg, id);
@@ -843,12 +965,21 @@ static INT_PTR CALLBACK settings_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
   return FALSE;
 }
 
-void dlg_settings(HWND parent)
+/* For another window that wants the same strip (the controls window). */
+int settings_tab_height(void) { return tab_h(); }
+
+void settings_set_tabs(HWND tab, const char *const *titles, int n)
+{
+  SetPropA(tab, "gp_tabs", (HANDLE)titles);
+  SetPropA(tab, "gp_ntabs", (HANDLE)(INT_PTR)n);
+}
+
+void settings_register_classes(void)
 {
   WNDCLASSA wc;
 
-  /* Both window classes have to exist before the dialog is created from its
-     template, which names the tab strip. */
+  /* Both window classes have to exist before a dialog is created from a
+     template that names the tab strip. */
   ZeroMemory(&wc, sizeof(wc));
   wc.hInstance = g_inst;
   wc.hCursor   = LoadCursor(NULL, IDC_ARROW);
@@ -860,7 +991,17 @@ void dlg_settings(HWND parent)
   wc.lpfnWndProc   = tabs_proc;
   wc.lpszClassName = "GPSettingsTabs";
   RegisterClassA(&wc);
+}
 
+void dlg_settings_tab(HWND parent, int tab)
+{
+  s_start_tab = (tab > 0 && tab < NPAGES) ? tab : 0;
+  settings_register_classes();
   gui_dialog_box(gui.large_ui ? IDD_SETTINGS_LARGE : IDD_SETTINGS, parent, settings_proc);
   gui_update_menu();
+}
+
+void dlg_settings(HWND parent)
+{
+  dlg_settings_tab(parent, 0);
 }

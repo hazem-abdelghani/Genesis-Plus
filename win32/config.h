@@ -158,6 +158,7 @@ typedef struct
   int fullscreen_on_load;  /* persists across runs, unlike fullscreen itself --
                                enters fullscreen automatically whenever a ROM loads */
   int show_fps;
+  int favorites_only;      /* the game list shows only the favorites */
 
   /* window geometry, restored on the next launch */
   int window_x;            /* top-left of the window, INT_MIN = "not set" */
@@ -205,5 +206,9 @@ extern void set_config_defaults(void);
 extern void config_load(void);
 extern void config_save(void);
 extern void config_add_recent(const char *path);
+
+/* Favorite games, kept by full path in genesis-plus.ini ([favorites]). */
+extern int  config_fav_has(const char *path);
+extern void config_fav_set(const char *path, int on);   /* does not save; call config_save() */
 
 #endif /* _CONFIG_H_ */

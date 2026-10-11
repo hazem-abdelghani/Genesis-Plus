@@ -133,7 +133,7 @@ LDFLAGS  += -mwindows
 # runtime, so a machine without it still starts. DirectInput (dinput8.dll),
 # used for gamepads/joysticks XInput doesn't cover, has shipped in Windows
 # since XP, so unlike XInput it's linked normally.
-LIBS      = -lgdi32 -lcomctl32 -lcomdlg32 -lwinmm -lshell32 -lshlwapi -lole32 -luuid -lmfuuid -lws2_32 -ld3d9 -luxtheme -ldwmapi \
+LIBS      = -lgdi32 -lmsimg32 -lcomctl32 -lcomdlg32 -lwinmm -lshell32 -lshlwapi -lole32 -luuid -lmfuuid -lws2_32 -ld3d9 -luxtheme -ldwmapi \
             -ld3d11 -ldxgi -ldxguid -ldinput8 \
             -Wl,-Bstatic -lz -Wl,-Bdynamic -lm
 
@@ -369,7 +369,7 @@ $(OBJDIR)/theme.o: $(GUIDIR)/theme.c
 $(OBJDIR)/sevenzip.o: $(GUIDIR)/sevenzip.c $(GUIDIR)/sevenzip.h
 	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@
 
-$(OBJDIR)/gpgx_res.o: $(GUIDIR)/gpgx.rc $(GUIDIR)/resource.h $(GUIDIR)/gpgx.manifest
+$(OBJDIR)/gpgx_res.o: $(GUIDIR)/gpgx.rc $(GUIDIR)/resource.h $(GUIDIR)/gpgx.manifest $(GUIDIR)/pad.bin $(GUIDIR)/genres.bin
 	$(WINDRES) -I$(GUIDIR) $< -O coff -o $@
 
 # Core and shared sources

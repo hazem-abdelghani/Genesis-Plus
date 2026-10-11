@@ -58,6 +58,11 @@
 #define IDM_VIEW_RESETWINDOW      277
 #define IDM_VIEW_FINDSEARCH       278   /* Ctrl+F */
 #define IDM_OPTIONS_SETTINGS      279   /* Options > Settings... */
+#define IDM_VIEW_COL_FAV          284   /* List Columns > Favorite */
+#define IDM_VIEW_FAVONLY          285   /* View > Show Favorites Only */
+#define IDM_VIEW_TOGGLEFAV        286   /* Ctrl+D: the selected game is, or is not, a favorite */
+#define IDM_OPTIONS_SETTINGS_VIDEO 280  /* toolbar: Settings, on the Video tab */
+#define IDM_OPTIONS_SETTINGS_AUDIO 281  /* toolbar: Settings, on the Audio tab */
 
 /* --- Video ------------------------------------------------------------ */
 #define IDM_VIDEO_SCALE_BASE      300   /* .. 305 == 1x .. 6x */
@@ -128,10 +133,14 @@
 #define IDM_BROWSER_REMOVE_COVER   835
 #define IDM_BROWSER_VIEW_LIST      836
 #define IDM_BROWSER_VIEW_GRID      837
+#define IDM_BROWSER_FAVORITE       838   /* context menu: add to / remove from favorites */
 
 /* --- Dialogs ---------------------------------------------------------- */
 #define IDD_ABOUT                 900
 #define IDD_INPUT                 901
+#define IDC_INPUT_TAB            1099
+#define IDR_PADIMG               7001
+#define IDR_GENRES               7002
 #define IDD_AUDIO                 902
 #define IDD_SHORTCUTS             903
 #define IDD_CHEATS                904
@@ -152,6 +161,7 @@
 #define IDD_SETTINGS              930
 #define IDD_SETTINGS_LARGE        931
 #define IDC_SETTINGS_TAB          1400
+#define IDC_SETTINGS_DEFAULTS     1401
 
 #define IDC_ABOUT_TEXT           1000
 #define IDC_ABOUT_LINK1          1069
@@ -210,6 +220,7 @@
 #define IDC_BROWSER_BAR          1200   /* container of the toolbar, search bar and filter bar */
 #define IDC_TB_REFRESH           1201
 #define IDC_TB_PLAY              1202
+#define IDC_TB_FAV               1220   /* toolbar: Favorites Only */
 #define IDC_BROWSER_SEARCH_LABEL 1203
 #define IDC_BROWSER_SEARCH_CLOSE 1204
 #define IDC_BROWSER_FILTER_CONSOLE 1205

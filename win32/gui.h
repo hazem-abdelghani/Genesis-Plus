@@ -171,6 +171,7 @@ extern int  gui_input_resolve_device(int device, const char *joy_name, int avoid
 
 extern int  input_capture_key(void);
 extern int  input_capture_gamepad(int device);
+extern int  input_pad_button_down(int device, int mask);   /* is that assigned button held right now */
 extern int  input_any_input_down(int device);
 
 extern const char *input_key_name(int vk);
@@ -235,6 +236,10 @@ extern int  browser_toolbar_height(void);      /* 0 when the toolbar is hidden o
 extern void browser_toolbar_layout(void);      /* place / hide the toolbar (hidden in fullscreen) */
 extern void browser_toolbar_update(void);      /* pressed look of the toolbar's switches */
 extern int  browser_column_hidden(int col);
+extern void browser_toggle_favorite(void);          /* Ctrl+D: the selected game */
+extern void browser_toggle_favorites_only(void);    /* the toolbar star / View > Show Favorites Only */
+extern int  browser_favorites_only(void);
+extern LRESULT browser_list_customdraw(NMHDR *hdr); /* -1 when it is not the game list */
 extern void browser_toggle_column(int col);
 
 /****************************************************************************
@@ -287,6 +292,11 @@ extern HMENU gui_main_menu(void);
 extern int  gui_shader_available(void);          /* librashader + Direct3D 11 present (says what is missing) */
 extern int  gui_set_shader(const char *path);    /* a .slangp preset, or NULL / "" for none */
 extern void dlg_settings(HWND parent);   /* settings.c */
+extern void dlg_settings_tab(HWND parent, int tab);   /* the same, opened on tab 0 General, 1 Video, 2 Audio ... */
+extern void settings_register_classes(void);
+extern int  settings_tab_height(void);
+extern void settings_set_tabs(HWND tab, const char *const *titles, int n);
+#define GP_TABS_CHANGED 0x1000           /* WM_COMMAND code the tab strip sends; the selection is its GWLP_USERDATA */
 extern void dlg_rom_info(HWND parent);
 
 #endif /* _GUI_H_ */

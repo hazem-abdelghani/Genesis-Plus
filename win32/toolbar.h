@@ -10,7 +10,7 @@
 #define _TOOLBAR_H_
 
 enum { TI_OPEN, TI_REFRESH, TI_PLAY, TI_STOP, TI_RESET, TI_PAUSE, TI_FULLSCREEN,
-       TI_SCREENSHOT, TI_SETTINGS, TI_CONTROLS, TI_N };
+       TI_SCREENSHOT, TI_SETTINGS, TI_VIDEO, TI_AUDIO, TI_CONTROLS, TI_FAV, TI_FAVON, TI_N };
 
 /* Sizes follow the Larger UI setting. */
 #define TBS(v) (gui.large_ui ? (((v) * 1175 + 500) / 1000) : (v))
@@ -26,6 +26,10 @@ void tb_set_checked(HWND button, int on);
 
 /* From WM_DRAWITEM: 1 when the item was one of the toolbar's. */
 int tb_draw(const DRAWITEMSTRUCT *di);
+
+/* Paints one icon (alpha-blended, in `color`) with its top-left at x, y, sz pixels square -- for
+   the star in the game list. */
+void tb_paint_icon(HDC dc, int x, int y, int sz, int icon, COLORREF color);
 
 /* The face color the toolbar, search bar and filter bar sit on. */
 COLORREF tb_face_color(void);

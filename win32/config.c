@@ -65,9 +65,9 @@ static void set_pad_defaults(int player)
   p->button[PAD_B]     = XPAD_A;
   p->button[PAD_C]     = XPAD_B;
   p->button[PAD_START] = XPAD_START;
-  p->button[PAD_X]     = XPAD_LEFT_SHOULDER;
-  p->button[PAD_Y]     = XPAD_Y;
-  p->button[PAD_Z]     = XPAD_RIGHT_SHOULDER;
+  p->button[PAD_X]     = XPAD_Y;
+  p->button[PAD_Y]     = XPAD_RIGHT_SHOULDER;
+  p->button[PAD_Z]     = XPAD_RIGHT_TRIGGER;
   p->button[PAD_MODE]  = XPAD_BACK;
 
   p->device = player;
@@ -149,7 +149,7 @@ void set_config_defaults(void)
   }
 
   /* --- frontend --- */
-  gui.scale               = 2;
+  gui.scale               = 3;
   gui.aspect              = ASPECT_43;
   gui.smooth              = 0;
   gui.scanline_pct        = 0;
@@ -176,13 +176,13 @@ void set_config_defaults(void)
   gui.cheats_enabled      = 0;
   gui.browser_grid_view   = 0;
   gui.hide_toolbar        = 0;
-  gui.hide_searchbar      = 0;
-  gui.hide_filterbar      = 0;
+  gui.hide_searchbar      = 1;   /* the search bar and the filter bar start switched off */
+  gui.hide_filterbar      = 1;
   gui.browser_grid_size   = 96;
   gui.key_fast_forward    = VK_TAB;
   gui.key_rewind          = VK_BACK;
-  gui.pad_fast_forward    = 0;
-  gui.pad_rewind          = 0;
+  gui.pad_fast_forward    = XPAD_LEFT_SHOULDER;
+  gui.pad_rewind          = XPAD_LEFT_TRIGGER;
   gui.deadzone[0]         = 30;   /* close to this app's own prior fixed threshold (XPAD_DEADZONE
                                       10000 out of a possible 32767, about 30%), so upgrading
                                       changes nothing by default -- only touching the slider does */
@@ -190,6 +190,7 @@ void set_config_defaults(void)
   gui.fullscreen          = 0;
   gui.fullscreen_on_load  = 0;
   gui.show_fps            = 0;
+  gui.favorites_only      = 0;
 
   /*
    * Sentinel for "never saved". GetPrivateProfileIntA is documented to
@@ -245,7 +246,7 @@ static int ini_get(const char *section, const char *key, int fallback)
    one go (to a temporary file that then replaces genesis-plus.ini). Writing each key
    with WritePrivateProfileString rewrote the file about 130 times per save, and
    a crash part-way through could leave it half written. */
-#define INI_MAX_ITEMS 400
+#define INI_MAX_ITEMS 900
 
 typedef struct
 {
@@ -253,6 +254,10 @@ typedef struct
   char key[40];
   char value[GUI_PATH_LEN];
 } ini_item;
+
+#define GUI_FAV_MAX 400
+static char fav_list[GUI_FAV_MAX][GUI_PATH_LEN];
+static int  fav_n;
 
 static ini_item *ini_q;
 static int       ini_n;
@@ -406,6 +411,7 @@ void config_load(void)
   gui.hide_filterbar = ini_get("general", "hide_filterbar", gui.hide_filterbar) ? 1 : 0;
   gui.browser_grid_size = clampi(ini_get("general", "browser_grid_size", gui.browser_grid_size), 48, 256);
   gui.show_fps   = ini_get("video", "show_fps", gui.show_fps) ? 1 : 0;
+  gui.favorites_only = ini_get("general", "favorites_only", gui.favorites_only) ? 1 : 0;
   gui.fullscreen = ini_get("video", "fullscreen", gui.fullscreen) ? 1 : 0;
   gui.fullscreen_on_load = ini_get("video", "fullscreen_on_load", gui.fullscreen_on_load) ? 1 : 0;
   config.ntsc    = (uint8)clampi(ini_get("video", "ntsc_filter", config.ntsc), 0, 3);
@@ -593,6 +599,19 @@ void config_load(void)
     ini_get_str("recent", key, buf, sizeof(buf));
     lstrcpynA(gui.recent[i], buf, GUI_PATH_LEN);
   }
+
+  /* --- favorites --- */
+  fav_n = 0;
+  {
+    int n = ini_get("favorites", "count", 0);
+    if (n > GUI_FAV_MAX) n = GUI_FAV_MAX;
+    for (i = 0; i < n; i++)
+    {
+      wsprintfA(key, "game%d", i);
+      ini_get_str("favorites", key, buf, sizeof(buf));
+      if (buf[0]) config_fav_set(buf, 1);
+    }
+  }
 }
 
 void config_save(void)
@@ -639,6 +658,7 @@ void config_save(void)
   ini_put("general", "hide_filterbar", gui.hide_filterbar);
   ini_put("general", "browser_grid_size", gui.browser_grid_size);
   ini_put("video", "show_fps", gui.show_fps);
+  ini_put("general", "favorites_only", gui.favorites_only);
   ini_put("video", "fullscreen", gui.fullscreen);
   ini_put("video", "fullscreen_on_load", gui.fullscreen_on_load);
   ini_put("video", "ntsc_filter", config.ntsc);
@@ -734,7 +754,46 @@ void config_save(void)
     ini_put_str("recent", key, gui.recent[i]);
   }
 
+  ini_put("favorites", "count", fav_n);
+  for (i = 0; i < fav_n; i++)
+  {
+    wsprintfA(key, "game%d", i);
+    ini_put_str("favorites", key, fav_list[i]);
+  }
+
   ini_flush();
+}
+
+/****************************************************************************
+ * Favorites
+ ****************************************************************************/
+
+int config_fav_has(const char *path)
+{
+  int i;
+  if (!path) return 0;
+  for (i = 0; i < fav_n; i++)
+    if (!lstrcmpiA(fav_list[i], path)) return 1;
+  return 0;
+}
+
+void config_fav_set(const char *path, int on)
+{
+  int i;
+
+  if (!path || !path[0]) return;
+  for (i = 0; i < fav_n; i++)
+    if (!lstrcmpiA(fav_list[i], path)) break;
+
+  if (on && i == fav_n && fav_n < GUI_FAV_MAX)
+  {
+    lstrcpynA(fav_list[fav_n++], path, GUI_PATH_LEN);
+  }
+  else if (!on && i < fav_n)
+  {
+    memmove(fav_list[i], fav_list[i + 1], (size_t)(fav_n - i - 1) * GUI_PATH_LEN);
+    fav_n--;
+  }
 }
 
 /****************************************************************************

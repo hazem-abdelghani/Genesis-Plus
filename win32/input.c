@@ -1358,6 +1358,50 @@ int input_capture_key(void)
   return 0;
 }
 
+/* Everything held down on a pad right now (stick and triggers folded into the
+   same bits the assignments use), for showing live presses. */
+int input_pad_button_down(int device, int mask)
+{
+  if (!mask) return 0;
+
+  if (device >= 0 && device < XPAD_MAX_DEVICES)
+  {
+    XPAD_STATE st;
+    DWORD b;
+
+    if (!xinput_get_state) return 0;
+    ZeroMemory(&st, sizeof(st));
+    if (!xpad_query(device, &st)) return 0;
+
+    b = st.Gamepad.wButtons;
+    if (st.Gamepad.sThumbLY >  XPAD_DEADZONE) b |= XPAD_DPAD_UP;
+    if (st.Gamepad.sThumbLY < -XPAD_DEADZONE) b |= XPAD_DPAD_DOWN;
+    if (st.Gamepad.sThumbLX < -XPAD_DEADZONE) b |= XPAD_DPAD_LEFT;
+    if (st.Gamepad.sThumbLX >  XPAD_DEADZONE) b |= XPAD_DPAD_RIGHT;
+    if (st.Gamepad.bLeftTrigger  > XPAD_TRIGGER_THRESHOLD) b |= XPAD_LEFT_TRIGGER;
+    if (st.Gamepad.bRightTrigger > XPAD_TRIGGER_THRESHOLD) b |= XPAD_RIGHT_TRIGGER;
+    return (b & (DWORD)mask) != 0;
+  }
+
+  if (is_di_device(device))
+  {
+    DIJOYSTATE2 st;
+    DWORD b;
+
+    ZeroMemory(&st, sizeof(st));
+    if (!di_query(device - XPAD_MAX_DEVICES, &st)) return 0;
+
+    b = di_raw_buttons(&st);
+    if (st.lY >  XPAD_DEADZONE) b |= DI_DPAD_DOWN;
+    if (st.lY < -XPAD_DEADZONE) b |= DI_DPAD_UP;
+    if (st.lX < -XPAD_DEADZONE) b |= DI_DPAD_LEFT;
+    if (st.lX >  XPAD_DEADZONE) b |= DI_DPAD_RIGHT;
+    return (b & (DWORD)mask) != 0;
+  }
+
+  return 0;
+}
+
 int input_capture_gamepad(int device)
 {
   if (device >= 0 && device < XPAD_MAX_DEVICES)

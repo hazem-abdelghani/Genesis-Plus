@@ -15,12 +15,68 @@
 #include <shobjidl.h>
 
 #include <uxtheme.h>
+#include <zlib.h>
 
 #include "shared.h"
 #include "gui.h"
 #include "resource.h"
 #include "theme.h"
 #include "netplay.h"
+#include "toolbar.h"
+
+/****************************************************************************
+ * Tooltips for the dialogs: one tooltip window per dialog, hiding itself
+ * after 30 seconds. A tip goes on a control by id, and/or on the plain text
+ * label (a static with that text) next to it.
+ ****************************************************************************/
+
+typedef struct { int id; const char *label; const char *tip; } TipDef;
+
+static void dlg_add_tip(HWND tt, HWND dlg, HWND ctl, const char *text)
+{
+  TOOLINFOA ti;
+
+  if (!ctl || !text) return;
+  memset(&ti, 0, sizeof(ti));
+  ti.cbSize = sizeof(ti);
+  ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+  ti.hwnd = dlg;
+  ti.uId = (UINT_PTR)ctl;
+  ti.lpszText = (LPSTR)text;
+  SendMessageA(tt, TTM_ADDTOOLA, 0, (LPARAM)&ti);
+}
+
+static void dlg_add_tips(HWND dlg, const TipDef *defs, int n)
+{
+  HWND tt = CreateWindowExA(WS_EX_TOPMOST, TOOLTIPS_CLASSA, NULL, WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+                            0, 0, 0, 0, dlg, NULL, GetModuleHandle(NULL), NULL);
+  int i;
+
+  if (!tt) return;
+  SendMessage(tt, TTM_SETMAXTIPWIDTH, 0, TBS(320));
+  SendMessage(tt, TTM_SETDELAYTIME, TTDT_AUTOPOP, 30000);
+  SendMessage(tt, TTM_SETDELAYTIME, TTDT_INITIAL, 400);
+  SendMessage(tt, WM_SETFONT, SendMessage(dlg, WM_GETFONT, 0, 0), FALSE);
+
+  for (i = 0; i < n; i++)
+  {
+    if (defs[i].id) dlg_add_tip(tt, dlg, GetDlgItem(dlg, defs[i].id), defs[i].tip);
+    if (defs[i].label)
+    {
+      HWND c;
+      for (c = GetWindow(dlg, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT))
+      {
+        char cls[16], txt[96];
+        GetClassNameA(c, cls, sizeof(cls));
+        if (lstrcmpiA(cls, "Static") != 0) continue;
+        GetWindowTextA(c, txt, sizeof(txt));
+        if (lstrcmpA(txt, defs[i].label) != 0) continue;
+        SetWindowLongPtr(c, GWL_STYLE, GetWindowLongPtr(c, GWL_STYLE) | SS_NOTIFY);   /* so it gets the mouse */
+        dlg_add_tip(tt, dlg, c, defs[i].tip);
+      }
+    }
+  }
+}
 
 /****************************************************************************
  * Input configuration
@@ -36,8 +92,16 @@ enum { LISTEN_OFF = 0, LISTEN_WAIT_RELEASE, LISTEN_ACTIVE };
 
 static struct
 {
-  int       player;
-  t_pad_map map;        /* working copy, committed on Save */
+  int       player;     /* the tab showing */
+  int       sel;        /* the mapping being assigned */
+  unsigned  live;       /* bit per pad button: its key or gamepad button is held right now */
+  HBITMAP   picture;    /* the controller, scaled to pic */
+  HFONT     font;       /* the dialog font, 21% larger */
+  RECT      pic;        /* where it is drawn, in dialog client coordinates */
+  struct { RECT rc; UINT fmt; char text[32]; } label[16];   /* the names beside the buttons: painted, not controls, so they never cover the picture */
+  int       labels;
+  struct { t_pad_map map; uint8 padtype; int deadzone; } other[2];   /* each player's working copy while its tab is not showing */
+  t_pad_map map;        /* working copy of the showing player, committed on Save */
   uint8     padtype;
   int       key_fast_forward, key_rewind;  /* working copy */
   int       pad_fast_forward, pad_rewind;  /* working copy */
@@ -92,31 +156,177 @@ static const char *input_list_entry_name(int sel)
   return input_button_label(sel);
 }
 
+/* The window is drawn 21% larger than the rest of the dialogs (10% twice). */
+#define IS(v) (TBS(v) * 121 / 100)
+
+#define INPUT_HINT_IDLE "Click a button (or its spot on the pad), then press the key or gamepad button you want. Right-click a button to clear it. Pressing a mapped key or button lights its spot."
+
+/* Each mapping is a button on the controller picture's sides, with its name
+   written beside it; the button shows what it is set to. */
 static void input_fill_list(HWND dlg)
 {
-  HWND list = GetDlgItem(dlg, IDC_INPUT_LIST);
-  int sel = (int)SendMessage(list, LB_GETCURSEL, 0, 0);
   int i, count = input_list_count();
-
-  SendMessage(list, LB_RESETCONTENT, 0, 0);
 
   for (i = 0; i < count; i++)
   {
-    char line[128];
+    char line[160];
     int key, button, dev;
 
     /* Fast forward/rewind are always captured against Player 1's device
-       (see input_capture_tick() below), regardless of whose dialog this is. */
+       (see input_capture_tick() below), regardless of whose tab this is. */
     if (i == EXTRA_FASTFORWARD)      { key = inp.key_fast_forward; button = inp.pad_fast_forward; dev = gui.pad[0].device; }
     else if (i == EXTRA_REWIND)      { key = inp.key_rewind; button = inp.pad_rewind; dev = gui.pad[0].device; }
     else                              { key = inp.map.key[i]; button = inp.map.button[i]; dev = inp.map.device; }
 
-    wsprintfA(line, "%s\t%s", input_key_name(key), input_pad_button_name(dev, button));
-    SendMessageA(list, LB_ADDSTRING, 0, (LPARAM)line);
+    if (inp.listen != LISTEN_OFF && i == inp.listen_target)
+      lstrcpyA(line, "Press a key or button...");
+    else
+      wsprintfA(line, "%s  /  %s", input_key_name(key), input_pad_button_name(dev, button));
+    SetDlgItemTextA(dlg, IDC_INPUT_LABEL_BASE + i, line);
+  }
+}
+
+/* Where each button sits on the picture, in thousandths of its width/height. */
+static const short input_hotspot[PAD_KEYS][2] =
+{
+  { 249, 323 }, { 249, 550 }, { 195, 433 }, { 303, 433 },   /* Up Down Left Right */
+  { 669, 569 }, { 761, 497 }, { 855, 433 },                 /* A B C */
+  { 636, 385 }, { 710, 309 }, { 796, 269 },                 /* X Y Z */
+  { 485, 385 }, { 796, 142 }                                /* Start, Mode (above Z) */
+};
+
+static RECT input_pic_rc(void)
+{
+  return inp.pic;
+}
+
+static void input_redraw_picture(HWND dlg)
+{
+  RECT rc = input_pic_rc();
+  InflateRect(&rc, IS(14), IS(14));
+  InvalidateRect(dlg, &rc, TRUE);
+}
+
+/* The controller, scaled once to the size it is shown at. It is stored
+   compressed and premultiplied (pad.bin), so it blends onto either theme. */
+static HBITMAP input_make_picture(int dw, int dh)
+{
+  HRSRC res = FindResourceA(NULL, MAKEINTRESOURCEA(IDR_PADIMG), (LPCSTR)RT_RCDATA);
+  const unsigned char *src;
+  unsigned char *raw, *dst;
+  BITMAPINFO bi;
+  HBITMAP bmp = NULL;
+  int sw, sh, x, y;
+  uLongf rawlen;
+
+  if (!res) return NULL;
+  src = (const unsigned char *)LockResource(LoadResource(NULL, res));
+  if (!src) return NULL;
+  sw = ((const int *)src)[0];
+  sh = ((const int *)src)[1];
+  rawlen = (uLongf)sw * sh * 4;
+  raw = (unsigned char *)malloc(rawlen);
+  if (!raw) return NULL;
+  if (uncompress(raw, &rawlen, src + 8, SizeofResource(NULL, res) - 8) != Z_OK) { free(raw); return NULL; }
+
+  ZeroMemory(&bi, sizeof(bi));
+  bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
+  bi.bmiHeader.biWidth = dw;
+  bi.bmiHeader.biHeight = -dh;
+  bi.bmiHeader.biPlanes = 1;
+  bi.bmiHeader.biBitCount = 32;
+  bi.bmiHeader.biCompression = BI_RGB;
+  bmp = CreateDIBSection(NULL, &bi, DIB_RGB_COLORS, (void **)&dst, NULL, 0);
+  if (bmp)
+  {
+    for (y = 0; y < dh; y++)
+    {
+      int y0 = y * sh / dh, y1 = ((y + 1) * sh + dh - 1) / dh;
+      if (y1 <= y0) y1 = y0 + 1;
+      if (y1 > sh) y1 = sh;
+      for (x = 0; x < dw; x++)
+      {
+        int x0 = x * sw / dw, x1 = ((x + 1) * sw + dw - 1) / dw;
+        int sx, sy, n = 0, c[4] = { 0, 0, 0, 0 };
+        if (x1 <= x0) x1 = x0 + 1;
+        if (x1 > sw) x1 = sw;
+        for (sy = y0; sy < y1; sy++)
+          for (sx = x0; sx < x1; sx++)
+          {
+            const unsigned char *p = raw + ((size_t)sy * sw + sx) * 4;
+            c[0] += p[0]; c[1] += p[1]; c[2] += p[2]; c[3] += p[3];
+            n++;
+          }
+        dst[((size_t)y * dw + x) * 4 + 0] = (unsigned char)(c[0] / n);
+        dst[((size_t)y * dw + x) * 4 + 1] = (unsigned char)(c[1] / n);
+        dst[((size_t)y * dw + x) * 4 + 2] = (unsigned char)(c[2] / n);
+        dst[((size_t)y * dw + x) * 4 + 3] = (unsigned char)(c[3] / n);
+      }
+    }
+  }
+  free(raw);
+  return bmp;
+}
+
+static void input_paint(HWND dlg)
+{
+  PAINTSTRUCT ps;
+  HDC dc = BeginPaint(dlg, &ps);
+  RECT rc = input_pic_rc();
+
+  if (inp.picture)
+  {
+    HDC mem = CreateCompatibleDC(dc);
+    HGDIOBJ old = SelectObject(mem, inp.picture);
+    BLENDFUNCTION bf = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+    AlphaBlend(dc, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+               mem, 0, 0, rc.right - rc.left, rc.bottom - rc.top, bf);
+    SelectObject(mem, old);
+    DeleteDC(mem);
   }
 
-  if (sel == LB_ERR) sel = 0;
-  SendMessage(list, LB_SETCURSEL, (WPARAM)sel, 0);
+  /* A ring marks the button being assigned, and one lights for every mapped
+     button or key that is held down right now. */
+  {
+    int i;
+    HPEN pen = CreatePen(PS_SOLID, IS(3), RGB(255, 140, 0));
+    HBRUSH fill = CreateSolidBrush(RGB(255, 140, 0));
+    HGDIOBJ op = SelectObject(dc, pen), ob = SelectObject(dc, GetStockObject(NULL_BRUSH));
+
+    for (i = 0; i < PAD_KEYS; i++)
+    {
+      int cx = rc.left + (rc.right - rc.left) * input_hotspot[i][0] / 1000;
+      int cy = rc.top  + (rc.bottom - rc.top) * input_hotspot[i][1] / 1000;
+      int r = IS(11), d = IS(4);
+
+      if (inp.listen != LISTEN_OFF && i == inp.listen_target)
+        Ellipse(dc, cx - r, cy - r, cx + r, cy + r);
+      if (inp.live & (1u << i))
+      {
+        Ellipse(dc, cx - r, cy - r, cx + r, cy + r);
+        SelectObject(dc, fill);
+        Ellipse(dc, cx - d, cy - d, cx + d, cy + d);
+        SelectObject(dc, GetStockObject(NULL_BRUSH));
+      }
+    }
+    SelectObject(dc, ob);
+    SelectObject(dc, op);
+    DeleteObject(pen);
+    DeleteObject(fill);
+  }
+
+  /* The names beside the buttons, drawn straight on the window over the picture's edge. */
+  {
+    int i;
+    HGDIOBJ of = SelectObject(dc, (HFONT)SendMessage(dlg, WM_GETFONT, 0, 0));
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, theme_is_dark() ? RGB(240, 240, 240) : GetSysColor(COLOR_WINDOWTEXT));
+    for (i = 0; i < inp.labels; i++)
+      DrawTextA(dc, inp.label[i].text, -1, &inp.label[i].rc, inp.label[i].fmt | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    SelectObject(dc, of);
+  }
+
+  EndPaint(dlg, &ps);
 }
 
 /* Rebuilds the "Press the key or gamepad button..." hint with however many
@@ -142,40 +352,16 @@ static void input_update_listen_hint(HWND dlg)
 
 static void input_set_listening(HWND dlg, int on)
 {
-  /* IDC_INPUT_LIST is included here again -- graying it out while
-     listening previously also hid which button was being assigned,
-     since the button name used to be its own first column. Now that
-     the button names are separate static labels beside it (never
-     disabled, since they're not interactive controls at all), that's
-     no longer a problem, and graying this one out makes clear it's
-     not interactive while listening. */
   static const int controls[] =
   {
-    IDC_INPUT_LIST, IDC_INPUT_ASSIGN, IDC_INPUT_AUTOASSIGN, IDC_INPUT_CLEAR, IDC_INPUT_DEFAULTS,
-    IDC_INPUT_DEVICE, IDC_INPUT_PADTYPE, IDOK, IDCANCEL
+    IDC_INPUT_AUTOASSIGN, IDC_INPUT_DEFAULTS, IDC_INPUT_DEVICE, IDC_INPUT_PADTYPE, IDOK, IDCANCEL
   };
   int i;
 
-  /* Moved off whatever button was just clicked (Assign or Auto Assign,
-     typically) onto a static label before disabling anything, rather
-     than disabling every other control first and the focused one last.
-     That two-pass approach did stop the original bug (disabling a
-     focused control while something else was still enabled let
-     Windows cascade focus onto it, and a still-in-flight activation key
-     would fire again on whatever it landed on -- confirmed directly:
-     Assign correctly setting auto_advance to 0 was having Auto Assign's
-     handler fire right after and set it back to 1, purely because Auto
-     Assign was still enabled the instant Assign got disabled). But
-     disabling a button while it still held focus turned out to leave
-     it stuck rendering as grayed even after being genuinely re-enabled
-     later (confirmed via IsWindowEnabled returning true while it still
-     visibly looked disabled) -- multiple different repaint techniques
-     couldn't clear it. Moving focus to a plain static label first means
-     nothing ever needs disabling while focused in the first place, so
-     neither problem has room to happen: labels aren't in controls[], so
-     they're never disabled, and a control that isn't focused when
-     disabled has nothing to cascade its focus onto. */
-  if (on) SetFocus(GetDlgItem(dlg, IDC_INPUT_LABEL_BASE));
+  /* Focus moves onto the hint text before anything is disabled: disabling the
+     focused control lets Windows pass focus (and a key press still in
+     flight) on to whatever is next, which started a second assignment. */
+  if (on) SetFocus(GetDlgItem(dlg, IDC_INPUT_HINT));
 
   for (i = 0; i < (int)(sizeof(controls) / sizeof(controls[0])); i++)
   {
@@ -183,21 +369,21 @@ static void input_set_listening(HWND dlg, int on)
     EnableWindow(ctl, on ? FALSE : TRUE);
     RedrawWindow(ctl, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
   }
+  for (i = 0; i < input_list_count(); i++)
+  {
+    HWND ctl = GetDlgItem(dlg, IDC_INPUT_LABEL_BASE + i);
+    EnableWindow(ctl, on ? FALSE : TRUE);
+    RedrawWindow(ctl, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
+  }
 
-  /* Whichever pushbutton was tabbed to or clicked most recently (Auto
-     Assign, typically, since it's what starts this) keeps Windows'
-     blue default-button border even once disabled -- that indicator
-     tracks focus history, not enabled state, and won't clear on its
-     own. Explicitly handing it back to the dialog's real default. */
+  /* The blue default-button border tracks focus history, not enabled state,
+     so it is handed back to the dialog's real default. */
   SendMessage(dlg, DM_SETDEFID, (WPARAM)IDOK, 0);
 
   if (on)
   {
-    HWND list = GetDlgItem(dlg, IDC_INPUT_LIST);
-    int sel = (int)SendMessage(list, LB_GETCURSEL, 0, 0);
-
     inp.listen = LISTEN_WAIT_RELEASE;
-    inp.listen_target = (sel == LB_ERR) ? 0 : sel;
+    inp.listen_target = inp.sel;
     inp.listen_deadline = GetTickCount() + 6000;
     inp.listen_shown_secs = -1;   /* forces input_update_listen_hint() to draw immediately below */
 
@@ -208,14 +394,15 @@ static void input_set_listening(HWND dlg, int on)
   {
     inp.listen = LISTEN_OFF;
     KillTimer(dlg, 1);
-    SetDlgItemTextA(dlg, IDC_INPUT_HINT,
-                    "Pick a button, choose Assign, then press the key you want.");
+    SetDlgItemTextA(dlg, IDC_INPUT_HINT, INPUT_HINT_IDLE);
   }
+  input_fill_list(dlg);
+  input_redraw_picture(dlg);
 }
 
 /* After a successful assignment, either moves on to the next button and
    re-arms listening automatically (Auto Assign), or just stops there
-   (Assign / double-click) -- inp.auto_advance, set by whichever one
+   (a click on one button) -- inp.auto_advance, set by whichever one
    actually started this listen, decides which. Reuses
    input_set_listening(dlg, 1) as-is when advancing, including its
    "wait for the current key/button to be released first" safety --
@@ -223,16 +410,25 @@ static void input_set_listening(HWND dlg, int on)
    just made could get immediately captured again as the next one. */
 static void input_advance_or_stop(HWND dlg, int sel)
 {
-  if (inp.auto_advance && sel + 1 < input_list_count())
+  if (inp.auto_advance && sel + 1 < PAD_KEYS)   /* the pad buttons only, not the Fast Forward / Rewind hotkeys */
   {
-    HWND list = GetDlgItem(dlg, IDC_INPUT_LIST);
-    SendMessage(list, LB_SETCURSEL, (WPARAM)(sel + 1), 0);
+    inp.sel = sel + 1;
+    input_set_listening(dlg, 0);
     input_set_listening(dlg, 1);
   }
   else
   {
     input_set_listening(dlg, 0);
   }
+}
+
+static void input_clear(HWND dlg, int sel)
+{
+  if (sel < 0 || sel >= input_list_count()) return;
+  if (sel == EXTRA_FASTFORWARD)      { inp.key_fast_forward = 0; inp.pad_fast_forward = 0; }
+  else if (sel == EXTRA_REWIND)      { inp.key_rewind = 0; inp.pad_rewind = 0; }
+  else                               { inp.map.key[sel] = 0; inp.map.button[sel] = 0; }
+  input_fill_list(dlg);
 }
 
 static void input_capture_tick(HWND dlg)
@@ -311,23 +507,32 @@ static void input_capture_tick(HWND dlg)
    just needs a button pressed on it; nothing gets recorded anywhere. */
 static void input_update_identify_hint(HWND dlg)
 {
-  int dev;
+  /* The resting hint is all the text needs now: whichever pad is selected
+     shows its presses live on the picture (input_update_live). */
+  if (inp.listen != LISTEN_OFF) return;
+  SetDlgItemTextA(dlg, IDC_INPUT_HINT, INPUT_HINT_IDLE);
+}
 
-  if (inp.listen != LISTEN_OFF) return;   /* Assign/Auto Assign owns the hint text while listening */
+/* Lights the spot of every mapped button whose key or gamepad button is held
+   down: polled on a short timer, and only repainted when something changed. */
+static void input_update_live(HWND dlg)
+{
+  unsigned now = 0;
+  int i, dev = (int)SendMessage(GetDlgItem(dlg, IDC_INPUT_DEVICE), CB_GETCURSEL, 0, 0) - 1;
 
-  dev = (int)SendMessage(GetDlgItem(dlg, IDC_INPUT_DEVICE), CB_GETCURSEL, 0, 0) - 1;
-
-  if (dev < 0)
+  if (inp.listen == LISTEN_OFF && GetForegroundWindow() == dlg)
   {
-    SetDlgItemTextA(dlg, IDC_INPUT_HINT, "Pick a button, choose Assign, then press the key you want.");
+    for (i = 0; i < PAD_KEYS; i++)
+    {
+      if (inp.map.key[i] && (GetAsyncKeyState(inp.map.key[i]) & 0x8000)) now |= 1u << i;
+      else if (dev >= 0 && inp.map.button[i] && input_pad_button_down(dev, inp.map.button[i])) now |= 1u << i;
+    }
   }
-  else if (input_capture_gamepad(dev))
+
+  if (now != inp.live)
   {
-    SetDlgItemTextA(dlg, IDC_INPUT_HINT, "Input detected -- this is the pad selected above.");
-  }
-  else
-  {
-    SetDlgItemTextA(dlg, IDC_INPUT_HINT, "Press any button on a pad to check it's the one selected above.");
+    inp.live = now;
+    input_redraw_picture(dlg);
   }
 }
 
@@ -335,10 +540,7 @@ static void input_load_controls(HWND dlg)
 {
   HWND dev = GetDlgItem(dlg, IDC_INPUT_DEVICE);
   HWND type = GetDlgItem(dlg, IDC_INPUT_PADTYPE);
-  int tabs[1] = { 65 };
   int i, joy_count;
-
-  SendMessage(GetDlgItem(dlg, IDC_INPUT_LIST), LB_SETTABSTOPS, 1, (LPARAM)tabs);
 
   /* "Keyboard Only", then one entry per XInput slot, then one per attached
      DirectInput joystick -- contiguous with t_pad_map.device's own numbering
@@ -425,121 +627,217 @@ static void input_read_controls(HWND dlg)
   inp.deadzone = (int)SendMessage(GetDlgItem(dlg, IDC_INPUT_DEADZONE), TBM_GETPOS, 0, 0);
 }
 
-static void input_align_labels(HWND dlg)
+/* The text of a name beside a button: "Up:", "A:" ... */
+static const char *input_label_text(int i)
 {
-  HWND list = GetDlgItem(dlg, IDC_INPUT_LIST);
-  RECT list_rc;
-  POINT list_origin;
-  int item_height = (int)SendMessage(list, LB_GETITEMHEIGHT, 0, 0);
-  int i, count = input_list_count();
-  int old_height, tight_height, delta;
-  static const int below_list[] = { IDC_INPUT_HINT, IDC_INPUT_DEADZONE_LABEL,
-                                     IDC_INPUT_DEADZONE, IDC_INPUT_DEADZONE_TEXT,
-                                     IDOK, IDCANCEL };
+  static char buf[PAD_KEYS + EXTRA_KEY_COUNT][32];
+  wsprintfA(buf[i], "%s:", input_list_entry_name(i));
+  return buf[i];
+}
 
-  /* The listbox's top-left in dialog client coordinates -- GetWindowRect
-     gives screen coordinates, ScreenToClient (against the dialog, not
-     the listbox itself) converts that to the same coordinate space
-     every child control's position is already expressed in. */
-  GetWindowRect(list, &list_rc);
-  list_origin.x = list_rc.left;
-  list_origin.y = list_rc.top;
-  ScreenToClient(dlg, &list_origin);
+static void input_add_label(const char *text, int x, int y, int w, int h, UINT fmt)
+{
+  if (inp.labels >= 16) return;
+  SetRect(&inp.label[inp.labels].rc, x, y, x + w, y + h);
+  inp.label[inp.labels].fmt = fmt;
+  lstrcpynA(inp.label[inp.labels].text, text, sizeof(inp.label[inp.labels].text));
+  inp.labels++;
+}
 
-  /* Shrinks the listbox to exactly fit its 14 rows -- its .rc height was
-     a guess sized generously enough to avoid clipping before the real
-     per-item height was known, leaving empty space below the last row.
-     Now that the real height is queried directly, it can be sized
-     exactly instead of guessed. */
-  old_height = list_rc.bottom - list_rc.top;
-  tight_height = item_height * count + 4;   /* +4 for the WS_BORDER frame */
-  delta = old_height - tight_height;
-  if (delta < 0) delta = 0;
+static HWND input_make(HWND dlg, const char *cls, const char *text, DWORD style,
+                       int x, int y, int w, int h, int id)
+{
+  HWND c = CreateWindowExA(0, cls, text, WS_CHILD | WS_VISIBLE | style, x, y, w, h, dlg,
+                           (HMENU)(INT_PTR)id, GetModuleHandle(NULL), NULL);
+  SendMessage(c, WM_SETFONT, (WPARAM)(inp.font ? inp.font : (HFONT)SendMessage(dlg, WM_GETFONT, 0, 0)), TRUE);
+  return c;
+}
 
-  SetWindowPos(list, NULL, 0, 0, list_rc.right - list_rc.left, tight_height,
-               SWP_NOMOVE | SWP_NOZORDER);
+/* The whole window is built here, around the controller picture: the d-pad,
+   Start and Mode on its left, the face buttons on its right, the hotkeys under
+   it. */
+static void input_build(HWND dlg)
+{
+  static const char *const player_tabs[] = { "Player 1", "Player 2" };
+  static const int left_col[]  = { 0, 1, 2, 3, 10, 11 };     /* Up Down Left Right Start Mode */
+  static const int right_col[] = { 7, 8, 9, 4, 5, 6 };       /* X Y Z A B C */
+  const DWORD bs = WS_TABSTOP | BS_PUSHBUTTON | BS_MULTILINE;
+  int M = IS(14), th = settings_tab_height() * 121 / 100;
+  int cw = IS(720), colw = IS(170), bh = IS(36), pitch = IS(42);
+  int nudge = IS(21);                      /* the right column sits a little in from the edge */
+  int hot_bottom;
+  int y0 = th + M, ym = y0 + IS(40), i, y, picw, pich, picx, picy;
+  RECT rc, wr;
+  HWND tab;
+  DWORD style = (DWORD)GetWindowLongPtr(dlg, GWL_STYLE), ex = (DWORD)GetWindowLongPtr(dlg, GWL_EXSTYLE);
 
-  for (i = 0; i < count; i++)
+  if (!inp.font)
   {
-    HWND label = GetDlgItem(dlg, IDC_INPUT_LABEL_BASE + i);
-    RECT label_rc;
-    POINT label_origin;
+    LOGFONTA lf;
+    if (GetObjectA((HFONT)SendMessage(dlg, WM_GETFONT, 0, 0), sizeof(lf), &lf))
+    {
+      lf.lfHeight = lf.lfHeight * 121 / 100;
+      inp.font = CreateFontIndirectA(&lf);
+      if (inp.font) SendMessage(dlg, WM_SETFONT, (WPARAM)inp.font, FALSE);
+    }
+  }
+  inp.labels = 0;
+  settings_register_classes();
+  tab = input_make(dlg, "GPSettingsTabs", "", WS_TABSTOP, 0, 0, cw, th, IDC_INPUT_TAB);
+  settings_set_tabs(tab, player_tabs, 2);
+  SetWindowLongPtr(tab, GWLP_USERDATA, inp.player);
 
-    if (!label) continue;
+  input_make(dlg, "STATIC", "Input Devices:", SS_LEFT, M, y0 + IS(4), IS(88), IS(16), IDC_STATIC);
+  input_make(dlg, "COMBOBOX", "", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
+             M + IS(92), y0, IS(230), IS(220), IDC_INPUT_DEVICE);
+  input_make(dlg, "STATIC", "Pad Type:", SS_RIGHT, cw - M - IS(170) - IS(70), y0 + IS(4), IS(64), IS(16), IDC_STATIC);
+  input_make(dlg, "COMBOBOX", "", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
+             cw - M - IS(170), y0, IS(170), IS(160), IDC_INPUT_PADTYPE);
 
-    /* Only Y changes -- X, width, and height stay exactly what the .rc
-       template already set them to; only the vertical row spacing
-       needed correcting to match the listbox's actual per-item height,
-       which doesn't reduce to a clean round number of dialog units.
-       The +2 nudges each label down slightly to align better with the
-       listbox text's own vertical position within each row. */
-    GetWindowRect(label, &label_rc);
-    label_origin.x = label_rc.left;
-    label_origin.y = label_rc.top;
-    ScreenToClient(dlg, &label_origin);
-
-    SetWindowPos(label, NULL, label_origin.x, list_origin.y + i * item_height + 2,
-                 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+  {
+    int lw = IS(46);                       /* the name beside each button */
+    for (i = 0; i < 6; i++)
+    {
+      int id = left_col[i], id2 = right_col[i];
+      y = ym + i * pitch;
+      input_add_label(input_label_text(id), M, y + (bh - IS(16)) / 2, lw - IS(6), IS(16), DT_RIGHT);
+      input_make(dlg, "BUTTON", "", bs, M + lw, y, colw - lw, bh, IDC_INPUT_LABEL_BASE + id);
+      /* a narrow box, right next to its button, so it never covers the picture's edge */
+      input_add_label(input_label_text(id2), cw - M - colw + lw - nudge - IS(8) - IS(26), y + (bh - IS(16)) / 2, IS(26), IS(16), DT_RIGHT);
+      input_make(dlg, "BUTTON", "", bs, cw - M - colw + lw - nudge, y, colw - lw, bh, IDC_INPUT_LABEL_BASE + id2);
+    }
   }
 
-  /* Everything below the listbox (hint text, Save/Cancel) shifts up by
-     the same amount the listbox just shrank, closing the gap rather
-     than leaving it sitting empty partway down the dialog. */
-  for (i = 0; i < (int)(sizeof(below_list) / sizeof(below_list[0])); i++)
+  /* The picture, at its full size, between the two columns: a little in from the left
+     one and a little above their middle. The two hotkey buttons sit under where the
+     picture's middle would be, shifted a little to the right. */
+  picw = cw - 2 * (M + colw + M);
+  pich = picw * 206 / 400;
+  picx = M + colw + IS(20);
   {
-    HWND ctl = GetDlgItem(dlg, below_list[i]);
-    RECT ctl_rc;
-    POINT ctl_origin;
+    int mid_y = ym + (5 * pitch + bh - pich) / 2;     /* the same middle as the two columns of buttons */
+    int gx;
+    picy = mid_y - IS(18);
+    SetRect(&inp.pic, picx, picy, picx + picw, picy + pich);
+    if (inp.picture) DeleteObject(inp.picture);
+    inp.picture = input_make_picture(picw, pich);
 
-    GetWindowRect(ctl, &ctl_rc);
-    ctl_origin.x = ctl_rc.left;
-    ctl_origin.y = ctl_rc.top;
-    ScreenToClient(dlg, &ctl_origin);
+    y = mid_y + pich + IS(6);
+    gx = picx + (picw - IS(230)) / 2 + IS(6);
+    input_add_label(input_label_text(EXTRA_FASTFORWARD), gx, y, IS(110), IS(16), DT_CENTER);
+    input_make(dlg, "BUTTON", "", bs, gx, y + IS(18), IS(110), IS(40), IDC_INPUT_LABEL_BASE + EXTRA_FASTFORWARD);
+    input_add_label(input_label_text(EXTRA_REWIND), gx + IS(120), y, IS(110), IS(16), DT_CENTER);
+    input_make(dlg, "BUTTON", "", bs, gx + IS(120), y + IS(18), IS(110), IS(40), IDC_INPUT_LABEL_BASE + EXTRA_REWIND);
+    hot_bottom = y + IS(58);
+  }
 
-    SetWindowPos(ctl, NULL, ctl_origin.x, ctl_origin.y - delta, 0, 0,
-                 SWP_NOSIZE | SWP_NOZORDER);
+  y = ym + 5 * pitch + bh;                       /* below the columns ... */
+  if (hot_bottom > y) y = hot_bottom;   /* ... and below the two hotkey buttons */
+  y += IS(14);
+  input_make(dlg, "STATIC", "Deadzone:", SS_LEFT, M, y + IS(4), IS(64), IS(16), IDC_INPUT_DEADZONE_LABEL);
+  input_make(dlg, "msctls_trackbar32", "", TBS_HORZ | TBS_AUTOTICKS | WS_TABSTOP,
+             M + IS(70), y, IS(300), IS(26), IDC_INPUT_DEADZONE);
+  input_make(dlg, "STATIC", "", SS_LEFT, M + IS(378), y + IS(4), IS(44), IS(16), IDC_INPUT_DEADZONE_TEXT);
+
+  y += IS(36);
+  input_make(dlg, "STATIC", INPUT_HINT_IDLE, SS_LEFT, M, y, cw - 2 * M, IS(32), IDC_INPUT_HINT);
+
+  y += IS(40);
+  input_make(dlg, "BUTTON", "Restore Defaults", WS_TABSTOP | BS_PUSHBUTTON, M, y, IS(130), IS(24), IDC_INPUT_DEFAULTS);
+  input_make(dlg, "BUTTON", "Auto Assign...", WS_TABSTOP | BS_PUSHBUTTON, M + IS(138), y, IS(120), IS(24), IDC_INPUT_AUTOASSIGN);
+  input_make(dlg, "BUTTON", "Save", WS_TABSTOP | BS_DEFPUSHBUTTON, cw - M - IS(168), y, IS(80), IS(24), IDOK);
+  input_make(dlg, "BUTTON", "Cancel", WS_TABSTOP | BS_PUSHBUTTON, cw - M - IS(80), y, IS(80), IS(24), IDCANCEL);
+
+  {
+    static const char *const how = " Click it, then press the key or gamepad button you want. Right-click to clear it.";
+    static char map_tip[14][200];
+    static const char *const what[14] =
+    {
+      "D-pad Up.", "D-pad Down.", "D-pad Left.", "D-pad Right.", "Button A.", "Button B.", "Button C.",
+      "Button X (6-button pads).", "Button Y (6-button pads).", "Button Z (6-button pads).",
+      "The Start button.", "The Mode button (6-button pads).",
+      "Hold to run the game fast-forward.", "Hold to rewind the game (needs Enable Rewind)."
+    };
+    static const TipDef tips[] =
+    {
+      { IDC_INPUT_TAB,      NULL, "Switch between Player 1 and Player 2." },
+      { IDC_INPUT_DEVICE,   "Input Devices:", "Which device controls this player: the keyboard only, a gamepad, or a joystick." },
+      { IDC_INPUT_PADTYPE,  "Pad Type:", "Which Genesis pad this player has: match the game, or force a 2, 3 or 6 button pad." },
+      { IDC_INPUT_DEADZONE, "Deadzone:", "How far a thumbstick has to move off-center before it registers at all." },
+      { IDC_INPUT_AUTOASSIGN, NULL, "Go through the pad buttons one after another, pressing a key or button for each." },
+      { IDC_INPUT_DEFAULTS, NULL, "Put this player's keys and buttons back to their defaults." },
+      { IDOK,               NULL, "Save the controls of both players." },
+      { IDCANCEL,           NULL, "Close without saving." },
+    };
+    TipDef all[8 + 14];
+    int k;
+
+    memcpy(all, tips, sizeof(tips));
+    for (k = 0; k < 14; k++)
+    {
+      wsprintfA(map_tip[k], "%s%s", what[k], how);
+      all[8 + k].id = IDC_INPUT_LABEL_BASE + k;
+      all[8 + k].label = input_label_text(k);
+      all[8 + k].tip = map_tip[k];
+    }
+    dlg_add_tips(dlg, all, 8 + 14);
+  }
+
+  /* Size the window to that client area and center it on its owner. */
+  SetRect(&rc, 0, 0, cw, y + IS(24) + M);
+  AdjustWindowRectEx(&rc, style, FALSE, ex);
+  {
+    HWND owner = GetWindow(dlg, GW_OWNER);
+    int w = rc.right - rc.left, h = rc.bottom - rc.top, x, yy;
+    if (!owner || !IsWindowVisible(owner)) owner = GetDesktopWindow();
+    GetWindowRect(owner, &wr);
+    x = wr.left + ((wr.right - wr.left) - w) / 2;
+    yy = wr.top + ((wr.bottom - wr.top) - h) / 2;
+    if (x < 0) x = 0;
+    if (yy < 0) yy = 0;
+    SetWindowPos(dlg, NULL, x, yy, w, h, SWP_NOZORDER);
   }
 }
 
 static INT_PTR CALLBACK input_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
 {
-  (void)lp;
-
   switch (msg)
   {
     case WM_INITDIALOG:
     {
-      char title[64];
       inp.dlg = dlg;
-      wsprintfA(title, "Configure Player %d", inp.player + 1);
-      SetWindowTextA(dlg, title);
+      SetWindowTextA(dlg, "Controls");
+      input_build(dlg);
       input_load_controls(dlg);
       input_fill_list(dlg);
-      input_align_labels(dlg);
       input_update_identify_hint(dlg);
-      SetTimer(dlg, 2, 100, NULL);   /* keeps input_update_identify_hint() live for as long as the dialog is open */
+      SetTimer(dlg, 2, 30, NULL);   /* keeps the live presses on the picture current while the dialog is open */
 
-      /* Explicit, not left to default tab-order focus -- observed the
-         dialog occasionally opening already in a listening state when
-         triggered via keyboard menu navigation, which this avoids
-         regardless of the exact cause by making sure no button ever
-         holds initial focus. Returning FALSE tells Windows this dialog
-         handled focus itself and not to override it. */
-      SetFocus(GetDlgItem(dlg, IDC_INPUT_LIST));
+      /* Explicit, not left to default tab-order focus: a stray Return still
+         on its way from the menu would otherwise press a mapping button and
+         start listening. The tab strip takes focus instead. */
+      SetFocus(GetDlgItem(dlg, IDC_INPUT_TAB));
       SendMessage(dlg, DM_SETDEFID, (WPARAM)IDOK, 0);
 
       /* Applied last, after focus is already settled -- SWP_FRAMECHANGED
          inside this can trigger synchronous frame recalculation, which
-         risks pumping other pending messages (like a stray Return still
-         working its way through from the menu selection that opened
-         this dialog) before focus was safely parked on the list. */
+         risks pumping other pending messages before focus was parked. */
       theme_apply_to_window(dlg);
       return FALSE;
     }
 
+    case WM_PAINT:
+      input_paint(dlg);
+      return TRUE;
+
+    case WM_DESTROY:
+      if (inp.picture) { DeleteObject(inp.picture); inp.picture = NULL; }
+      if (inp.font) { DeleteObject(inp.font); inp.font = NULL; }
+      return FALSE;
+
     case WM_TIMER:
       if (wp == 1)      { if (inp.listen != LISTEN_OFF) input_capture_tick(dlg); }
-      else if (wp == 2) { input_update_identify_hint(dlg); }
+      else if (wp == 2) { input_update_live(dlg); }
       return TRUE;
 
     case WM_HSCROLL:
@@ -556,68 +854,101 @@ static INT_PTR CALLBACK input_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
       return TRUE;
     }
 
+    case WM_LBUTTONDOWN:
+    {
+      /* A click on a button's spot on the picture starts assigning it. */
+      RECT rc = input_pic_rc();
+      int mx = (short)LOWORD(lp), my = (short)HIWORD(lp), i, best = -1, bestd = IS(16) * IS(16);
+      POINT pt;
+      pt.x = mx; pt.y = my;
+      if (inp.listen != LISTEN_OFF || !PtInRect(&rc, pt)) return FALSE;
+      for (i = 0; i < PAD_KEYS; i++)
+      {
+        int dx = mx - (rc.left + (rc.right - rc.left) * input_hotspot[i][0] / 1000);
+        int dy = my - (rc.top  + (rc.bottom - rc.top) * input_hotspot[i][1] / 1000);
+        if (dx * dx + dy * dy < bestd) { bestd = dx * dx + dy * dy; best = i; }
+      }
+      if (best >= 0)
+      {
+        input_read_controls(dlg);
+        inp.sel = best;
+        inp.auto_advance = 0;
+        input_set_listening(dlg, 1);
+      }
+      return TRUE;
+    }
+
+    case WM_CONTEXTMENU:
+    {
+      int id = GetDlgCtrlID((HWND)wp);
+      if (id >= IDC_INPUT_LABEL_BASE && id < IDC_INPUT_LABEL_BASE + input_list_count() && inp.listen == LISTEN_OFF)
+        input_clear(dlg, id - IDC_INPUT_LABEL_BASE);
+      return TRUE;
+    }
+
     case WM_CTLCOLORDLG:
     case WM_CTLCOLOREDIT:
     case WM_CTLCOLORLISTBOX:
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORBTN:
     {
-      HBRUSH br;
-      if (GetDlgCtrlID((HWND)lp) == IDC_INPUT_LIST)
-        br = theme_ctlcolor_custom((HDC)wp, RGB(0x33, 0x33, 0x33), 2);
-      else
-        br = theme_ctlcolor((HDC)wp);
+      HBRUSH br = theme_ctlcolor((HDC)wp);
       if (br) return (LRESULT)br;
       break;
     }
 
     case WM_COMMAND:
-      switch (LOWORD(wp))
+    {
+      int id = LOWORD(wp);
+
+      if (id >= IDC_INPUT_LABEL_BASE && id < IDC_INPUT_LABEL_BASE + input_list_count())
       {
+        if (HIWORD(wp) == BN_CLICKED && inp.listen == LISTEN_OFF)
+        {
+          input_read_controls(dlg);
+          inp.sel = id - IDC_INPUT_LABEL_BASE;
+          inp.auto_advance = 0;
+          input_set_listening(dlg, 1);
+        }
+        return TRUE;
+      }
+
+      switch (id)
+      {
+        case IDC_INPUT_TAB:
+          if (HIWORD(wp) == GP_TABS_CHANGED)
+          {
+            int to = (int)GetWindowLongPtr((HWND)lp, GWLP_USERDATA);
+            if (to != inp.player && (to == 0 || to == 1))
+            {
+              if (inp.listen != LISTEN_OFF) input_set_listening(dlg, 0);
+              input_read_controls(dlg);
+              inp.other[inp.player].map = inp.map;
+              inp.other[inp.player].padtype = inp.padtype;
+              inp.other[inp.player].deadzone = inp.deadzone;
+              inp.player = to;
+              inp.map = inp.other[to].map;
+              inp.padtype = inp.other[to].padtype;
+              inp.deadzone = inp.other[to].deadzone;
+              input_load_controls(dlg);
+              input_fill_list(dlg);
+              input_update_identify_hint(dlg);
+            }
+          }
+          return TRUE;
+
         case IDC_INPUT_DEVICE:
           /* Otherwise the identify hint only catches up on its next 100ms
              tick -- rare to notice, but free to fix. */
           if (HIWORD(wp) == CBN_SELCHANGE) input_update_identify_hint(dlg);
           return TRUE;
 
-        case IDC_INPUT_LIST:
-          if (HIWORD(wp) == LBN_DBLCLK)
-          {
-            inp.auto_advance = 0;
-            input_set_listening(dlg, 1);
-          }
-          return TRUE;
-
-        case IDC_INPUT_ASSIGN:
-          input_read_controls(dlg);
-          inp.auto_advance = 0;
-          input_set_listening(dlg, 1);
-          return TRUE;
-
         case IDC_INPUT_AUTOASSIGN:
           input_read_controls(dlg);
+          inp.sel = 0;
           inp.auto_advance = 1;
-          SendMessage(GetDlgItem(dlg, IDC_INPUT_LIST), LB_SETCURSEL, 0, 0);
           input_set_listening(dlg, 1);
           return TRUE;
-
-        case IDC_INPUT_CLEAR:
-        {
-          HWND list = GetDlgItem(dlg, IDC_INPUT_LIST);
-          int sel = (int)SendMessage(list, LB_GETCURSEL, 0, 0);
-          if (sel != LB_ERR && sel >= 0 && sel < input_list_count())
-          {
-            if (sel == EXTRA_FASTFORWARD)      { inp.key_fast_forward = 0; inp.pad_fast_forward = 0; }
-            else if (sel == EXTRA_REWIND)      { inp.key_rewind = 0; inp.pad_rewind = 0; }
-            else
-            {
-              inp.map.key[sel] = 0;
-              inp.map.button[sel] = 0;
-            }
-            input_fill_list(dlg);
-          }
-          return TRUE;
-        }
 
         case IDC_INPUT_DEFAULTS:
         {
@@ -650,16 +981,25 @@ static INT_PTR CALLBACK input_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
         }
 
         case IDOK:
+        {
+          int p;
           input_read_controls(dlg);
-          gui.pad[inp.player] = inp.map;
-          config.input[inp.player].padtype = inp.padtype;
+          inp.other[inp.player].map = inp.map;
+          inp.other[inp.player].padtype = inp.padtype;
+          inp.other[inp.player].deadzone = inp.deadzone;
+          for (p = 0; p < 2; p++)
+          {
+            gui.pad[p] = inp.other[p].map;
+            config.input[p].padtype = inp.other[p].padtype;
+            gui.deadzone[p] = inp.other[p].deadzone;
+          }
           gui.key_fast_forward = inp.key_fast_forward;
           gui.key_rewind = inp.key_rewind;
           gui.pad_fast_forward = inp.pad_fast_forward;
           gui.pad_rewind = inp.pad_rewind;
-          gui.deadzone[inp.player] = inp.deadzone;
           EndDialog(dlg, IDOK);
           return TRUE;
+        }
 
         case IDCANCEL:
           if (inp.listen != LISTEN_OFF) { input_set_listening(dlg, 0); return TRUE; }
@@ -667,6 +1007,7 @@ static INT_PTR CALLBACK input_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
           return TRUE;
       }
       return FALSE;
+    }
 
     case WM_CLOSE:
       EndDialog(dlg, IDCANCEL);
@@ -690,6 +1031,15 @@ void dlg_input(HWND parent, int player)
 
   ZeroMemory(&inp, sizeof(inp));
   inp.player  = player;
+  {
+    int p;
+    for (p = 0; p < 2; p++)
+    {
+      inp.other[p].map = gui.pad[p];
+      inp.other[p].padtype = config.input[p].padtype;
+      inp.other[p].deadzone = gui.deadzone[p];
+    }
+  }
   inp.map     = gui.pad[player];
   inp.padtype = config.input[player].padtype;
   inp.key_fast_forward = gui.key_fast_forward;
@@ -701,7 +1051,7 @@ void dlg_input(HWND parent, int player)
   if (gui_dialog_box(gui.large_ui ? IDD_INPUT_LARGE : IDD_INPUT, parent, input_proc) == IDOK)
   {
     config_save();
-    gui_status("Player %d controls saved", player + 1);
+    gui_status("Controls saved");
   }
 }
 
@@ -748,9 +1098,23 @@ static INT_PTR CALLBACK audio_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
   switch (msg)
   {
     case WM_INITDIALOG:
+    {
+      static const TipDef tips[] =
+      {
+        { IDC_AUDIO_VOLUME,  "Master Volume",   "Overall loudness of the sound." },
+        { IDC_AUDIO_FM,      "FM Preamp",       "Level of the FM sound channels (the Genesis's main music chip)." },
+        { IDC_AUDIO_PSG,     "PSG Preamp",      "Level of the PSG sound channels (the square-wave chip)." },
+        { IDC_AUDIO_CDDA,    "CD Audio",        "Volume of the Sega CD music tracks." },
+        { IDC_AUDIO_LATENCY, "Buffered Frames", "How many frames of sound are buffered. Fewer means less delay, but more chance of crackle on a slow PC." },
+        { IDC_AUDIO_DEFAULTS, NULL,             "Put these levels back to their defaults." },
+        { IDOK,              NULL,              "Save these settings." },
+        { IDCANCEL,          NULL,              "Close without saving." },
+      };
       theme_apply_to_window(dlg);
       audio_load_controls(dlg);
+      dlg_add_tips(dlg, tips, (int)(sizeof(tips) / sizeof(tips[0])));
       return TRUE;
+    }
 
     case WM_CTLCOLORDLG:
     case WM_CTLCOLOREDIT:
@@ -923,9 +1287,29 @@ static INT_PTR CALLBACK audio_adv_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
   switch (msg)
   {
     case WM_INITDIALOG:
+    {
+      static const TipDef tips[] =
+      {
+        { IDC_ADV_FILTER, "Audio Filter:",       "Off, a Low-Pass filter, or a 3-Band equalizer." },
+        { IDC_ADV_LP,     "Low-Pass Strength",   "How strongly the high frequencies are rolled off (Low-Pass filter)." },
+        { IDC_ADV_LG,     "EQ Low Gain",         "Level of the low band (3-Band equalizer)." },
+        { IDC_ADV_MG,     "EQ Mid Gain",         "Level of the middle band (3-Band equalizer)." },
+        { IDC_ADV_HG,     "EQ High Gain",        "Level of the high band (3-Band equalizer)." },
+        { IDC_ADV_LOWF,   "EQ Low Frequency (Hz):",  "Where the low band ends and the middle band begins, in Hz." },
+        { IDC_ADV_HIGHF,  "EQ High Frequency (Hz):", "Where the middle band ends and the high band begins, in Hz." },
+        { IDC_ADV_HQFM,   NULL,                  "Band-limited FM synthesis: cleaner high notes, for a little more CPU." },
+        { IDC_ADV_FMUNIT, "Master System FM Unit:", "Whether the Master System's FM sound unit is emulated, for games that use it." },
+        { IDC_ADV_OPLL,   "Master System FM Chip:", "Which chip emulates the Master System's FM sound unit." },
+        { IDC_ADV_PCM,    "Sega CD PCM Volume",  "Volume of the Sega CD's PCM sound chip." },
+        { IDC_ADV_DEFAULTS, NULL,                "Put these settings back to their defaults." },
+        { IDOK,           NULL,                  "Save these settings." },
+        { IDCANCEL,       NULL,                  "Close without saving." },
+      };
       theme_apply_to_window(dlg);
       adv_load_controls(dlg);
+      dlg_add_tips(dlg, tips, (int)(sizeof(tips) / sizeof(tips[0])));
       return TRUE;
+    }
 
     case WM_CTLCOLORDLG:
     case WM_CTLCOLOREDIT:
@@ -1094,7 +1478,7 @@ static INT_PTR CALLBACK shortcuts_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
         "Mode\tRight Shift\r\n"
         "\r\n"
         "A connected gamepad works without setup. Change any of the pad\r\n"
-        "bindings under Input > Configure Player.\r\n"
+        "bindings under Input > Controls.\r\n"
         "\r\n"
         "SHORTCUTS\r\n"
         "Action\tShortcut\r\n"
@@ -1105,6 +1489,7 @@ static INT_PTR CALLBACK shortcuts_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
         "Hard Reset\tCtrl+Shift+R\r\n"
         "Cheats\tCtrl+C\r\n"
         "Search the Game List\tCtrl+F\r\n"
+        "Toggle Favorite (selected game)\tCtrl+D\r\n"
         "Pause and Resume\tF2 / Pause\r\n"
         "Stop the ROM\tF3\r\n"
         "Save to the Current Slot\tF5\r\n"
@@ -1207,7 +1592,7 @@ static const char menu_guide_text[] =
   "   List View or Grid View: how the game browser shows your games.\r\n"
   "\r\n"
   "  List Columns:\r\n"
-  "   Choose which columns the list view shows: Console, Folder and Size (Name is always shown). Right-clicking the column header does the same.\r\n"
+  "   Choose which columns the list view shows: Favorite (a star: click it to mark a game as a favorite), Console, Folder and Size (Name is always shown). Right-clicking the column header does the same.\r\n"
   "\r\n"
   "  Theme:\r\n"
   "   System (follow Windows), Light or Dark.\r\n"
@@ -1216,14 +1601,16 @@ static const char menu_guide_text[] =
   "   Bigger menus and dialogs.\r\n"
   "\r\n"
   "  Show Toolbar, Show Search Bar, Show Filter Bar:\r\n"
-  "   Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, play, stop, reset, pause, start in fullscreen, screenshot, settings and the Player 1 controls. The toolbar stays above the game while it runs in a window and goes away in fullscreen. The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, region (read from tags such as (USA) in the file name) and folder.\r\n"
+  "   Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, play, stop, reset, pause, start in fullscreen, screenshot, settings, the Video and Audio settings tabs and the player controls; a star button next to Refresh shows only your favorites. The toolbar stays above the game while it runs in a window and goes away in fullscreen. The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, genre (looked up from the game's title in a table built into the program; a game that is not in it is listed as Unknown) and region (read from tags such as (USA) in the file name).\r\n"
   "\r\n"
+  "  Show Favorites Only, Toggle Favorite (Ctrl+D):\r\n"
+  "   Mark the selected game as a favorite (or click its star in the Favorite column; the right-click menu has Add To Favorites too). Show Favorites Only, or the star on the toolbar, hides every other game. Sorting by the Favorite column puts your favorites first.\r\n"
   "  Reset Window Size:\r\n"
   "   Puts the window back at the size chosen under Video > Window Size.\r\n"
   "\r\n"
   "VIDEO\r\n"
   "  Window Size:\r\n"
-  "   1x to 6x.\r\n"
+  "   1x to 6x (3x to start with).\r\n"
   "\r\n"
   "  Fullscreen (Alt+Enter), Start ROM in Fullscreen:\r\n"
   "   Esc also toggles fullscreen. In fullscreen, move the mouse to the top edge of the screen to show the menu bar; it hides again when the mouse moves away. The mouse cursor stays visible in fullscreen and hides itself after a few idle seconds. Closing the ROM leaves fullscreen and returns to the selected window size.\r\n"
@@ -1284,8 +1671,8 @@ static const char menu_guide_text[] =
   "   Cleaner PSG sound, a soft high-frequency roll-off, and mono instead of stereo.\r\n"
   "\r\n"
   "INPUT\r\n"
-  "  Configure Player 1 / 2...:\r\n"
-  "   Assign keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.\r\n"
+  "  Controls...:\r\n"
+  "   One window with a tab for Player 1 and one for Player 2, laid out around a picture of the pad. Click a button, then press the key or gamepad button you want (right-click a button to clear it; clicking its spot on the picture works too). Auto Assign goes through them all in turn. Pressing a mapped key or gamepad button lights its spot on the picture, so you can check a pad. Set keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.\r\n"
   "\r\n"
   "  Port A / Port B Device:\r\n"
   "   What is plugged in: Control Pad, Mouse, a light gun (Light Phaser, Menacer or Justifier, depending on the port), XE-1AP analog joystick, Activator, Paddle Control, Sports Pad, Graphic Board (Pico's drawing tablet), or a 4-player Team Player adapter -- not every device is on both ports.\r\n"
@@ -1311,7 +1698,7 @@ static const char menu_guide_text[] =
   "\r\n"
   "OPTIONS\r\n"
   "  Settings...:\r\n"
-  "   Every option of the menus on tabs (View, Emulation, Video, Audio, Input, Tools and Options). A change takes effect at once, exactly as if you had used the menu; the windows that have their own settings open from a button.\r\n"
+  "   Every option of the menus on tabs (General, Video, Audio, Input and Options). Hover over an option for a short description (it hides after 30 seconds). Restore Defaults (bottom left) puts every setting on all tabs back to its default, keeping your controls, ROM folder and cheats. A change takes effect at once, exactly as if you had used the menu; the windows that have their own settings open from a button.\r\n"
   "\r\n"
   "  Region:\r\n"
   "   Which region the console reports to the game: detect from the ROM, USA, Europe or Japan.\r\n"
