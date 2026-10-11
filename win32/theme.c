@@ -608,6 +608,92 @@ int theme_draw_menu_bar(HWND hwnd, LPARAM lp)
   return 1;
 }
 
+void theme_paint_menubar(HWND hwnd, int force)
+{
+  static int last_hot = -2;
+  HMENU menu = GetMenu(hwnd);
+  MENUBARINFO mbi;
+  RECT wr, rect;
+  POINT pt;
+  HDC dc;
+  HBRUSH br;
+  HFONT font;
+  HGDIOBJ old_font;
+  int i, n, hot = -1;
+
+  if (!menu || !theme_is_dark()) { last_hot = -2; return; }
+
+  mbi.cbSize = sizeof(mbi);
+  if (!GetMenuBarInfo(hwnd, OBJID_MENU, 0, &mbi)) return;
+  GetWindowRect(hwnd, &wr);
+  GetCursorPos(&pt);
+  n = GetMenuItemCount(menu);
+
+  for (i = 0; i < n; i++)
+  {
+    RECT ir;
+    if (GetMenuItemRect(hwnd, menu, (UINT)i, &ir) && PtInRect(&ir, pt)) { hot = i; break; }
+  }
+  if (!force && hot == last_hot) return;
+  last_hot = hot;
+
+  dc = GetWindowDC(hwnd);
+  if (!dc) return;
+
+  rect = mbi.rcBar;
+  OffsetRect(&rect, -wr.left, -wr.top);
+  rect.right = wr.right - wr.left;
+  br = CreateSolidBrush(RGB(32, 32, 32));
+  FillRect(dc, &rect, br);
+  DeleteObject(br);
+
+  if (gui.large_ui) font = gui_get_ui_font();
+  else
+  {
+    static HFONT menu_font;
+    if (!menu_font)
+    {
+      NONCLIENTMETRICSA ncm;
+      memset(&ncm, 0, sizeof(ncm));
+      ncm.cbSize = sizeof(ncm);
+      if (SystemParametersInfoA(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0))
+        menu_font = CreateFontIndirectA(&ncm.lfMenuFont);
+    }
+    font = menu_font;
+  }
+  old_font = font ? SelectObject(dc, font) : NULL;
+  SetBkMode(dc, TRANSPARENT);
+
+  for (i = 0; i < n; i++)
+  {
+    RECT ir;
+    char text[128];
+    MENUITEMINFOA mii;
+    UINT st = GetMenuState(menu, (UINT)i, MF_BYPOSITION);
+
+    if (!GetMenuItemRect(hwnd, menu, (UINT)i, &ir)) continue;
+    OffsetRect(&ir, -wr.left, -wr.top);
+
+    memset(&mii, 0, sizeof(mii));
+    mii.cbSize = sizeof(mii);
+    mii.fMask = MIIM_STRING | MIIM_FTYPE | MIIM_DATA;
+    mii.dwTypeData = text;
+    mii.cch = sizeof(text) - 1;
+    text[0] = 0;
+    GetMenuItemInfoA(menu, (UINT)i, TRUE, &mii);
+    if ((mii.fType & MFT_OWNERDRAW) && mii.dwItemData) lstrcpynA(text, (const char *)mii.dwItemData, sizeof(text));
+
+    br = CreateSolidBrush(i == hot ? RGB(62, 62, 62) : RGB(32, 32, 32));
+    FillRect(dc, &ir, br);
+    DeleteObject(br);
+    SetTextColor(dc, (st != (UINT)-1 && (st & (MF_GRAYED | MF_DISABLED))) ? RGB(120, 120, 120) : RGB(240, 240, 240));
+    DrawTextA(dc, text, -1, &ir, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+  }
+
+  if (old_font) SelectObject(dc, old_font);
+  ReleaseDC(hwnd, dc);
+}
+
 int theme_draw_menu_item(LPARAM lp)
 {
   UAHDRAWMENUITEM *item = (UAHDRAWMENUITEM *)lp;

@@ -2383,6 +2383,7 @@ static void set_fullscreen_menu(int show)
   if (show == showing) return;
 
   SetMenu(g_hwnd, show ? g_menu : NULL);
+  if (show) theme_paint_menubar(g_hwnd, 1);
 
   if (!show)
   {
@@ -2451,6 +2452,8 @@ static void tick_fullscreen_menu_hover(void)
     while (ShowCursor(FALSE) >= 0) { }
     hidden = 1;
   }
+
+  if (GetMenu(g_hwnd)) theme_paint_menubar(g_hwnd, 0);   /* the item under the mouse lights up */
 
   if (!GetMenu(g_hwnd))
   {
@@ -3573,6 +3576,15 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
       if (notify == 0 || notify == 1) on_command(id);
       return 0;
+    }
+
+    case WM_NCPAINT:
+    case WM_NCACTIVATE:
+    {
+      /* Fullscreen has no title bar: the system paints the menu bar light then, so it is painted dark here. */
+      LRESULT r = DefWindowProc(hwnd, msg, wp, lp);
+      if (gui.fullscreen) theme_paint_menubar(hwnd, 1);
+      return r;
     }
 
     case 0x0091:   /* WM_UAHDRAWMENU -- undocumented, no public name */

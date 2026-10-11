@@ -98,6 +98,11 @@ LRESULT theme_header_customdraw(NMHDR *hdr);
    about the message looked wrong) -- caller should fall through to
    DefWindowProc in that case. */
 int theme_draw_menu_bar(HWND hwnd, LPARAM lp);
+
+/* Fullscreen has no title bar, and the system then paints the menu bar in the light colors
+   whatever the theme: this paints it dark. force = 0 repaints only when the item under the
+   mouse changed. */
+void theme_paint_menubar(HWND hwnd, int force);
 int theme_draw_menu_item(LPARAM lp);
 
 /* Converts every item in this menu, and every submenu it contains, to
