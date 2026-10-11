@@ -72,10 +72,10 @@ static const char *const it_lockon[]   = { "None", "Game Genie", "Action Replay 
 static const SRow rows_view[] =
 {
   CHOICE("View mode:",            IDM_VIEW_LIST, it_viewmode, "How the game browser shows your games: a list or a grid of covers."),
+  CHECK ("Show the Favorite column", IDM_VIEW_COL_FAV, "Show the star column in the list view. Click a star to make a game a favorite (Ctrl+D does it for the selected game)."),
   CHECK ("Show the Console column", IDM_VIEW_COL_BASE + 1, "Show the Console column in the list view."),
   CHECK ("Show the Folder column",  IDM_VIEW_COL_BASE + 2, "Show the Folder column in the list view."),
   CHECK ("Show the Size column",    IDM_VIEW_COL_BASE + 3, "Show the Size column in the list view."),
-  CHECK ("Show the Favorite column", IDM_VIEW_COL_FAV, "Show the star column in the list view. Click a star to make a game a favorite (Ctrl+D does it for the selected game)."),
   CHOICE("Theme:",                IDM_VIDEO_THEME_BASE, it_theme, "System follows Windows; Light or Dark forces one."),
   CHECK ("Larger UI",             IDM_VIDEO_LARGE_UI, "Bigger menus, dialogs and toolbar."),
   CHECK ("Show Toolbar",          IDM_VIEW_TOOLBAR, "Show the row of buttons above the game list. It stays above the game while it runs in a window."),

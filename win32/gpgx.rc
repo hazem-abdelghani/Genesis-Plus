@@ -77,11 +77,11 @@ BEGIN
     END
     POPUP "List &Columns"
     BEGIN
+      MENUITEM "&Favorite",                     IDM_VIEW_COL_FAV
       MENUITEM "&Name",                         IDM_VIEW_COL_BASE + 0
       MENUITEM "&Console",                      IDM_VIEW_COL_BASE + 1
       MENUITEM "&Folder",                       IDM_VIEW_COL_BASE + 2
       MENUITEM "&Size",                         IDM_VIEW_COL_BASE + 3
-      MENUITEM "&Favorite",                     IDM_VIEW_COL_FAV
     END
     MENUITEM SEPARATOR
     POPUP "&Theme"

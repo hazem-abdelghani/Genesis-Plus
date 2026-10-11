@@ -1150,11 +1150,16 @@ static void show_column_menu(int screen_x, int screen_y)
   HMENU menu = CreatePopupMenu();
   int i, cmd;
 
-  for (i = 0; i < BROWSER_COLUMNS; i++)
   {
-    UINT flags = MF_STRING | (col_hidden[i] ? MF_UNCHECKED : MF_CHECKED);
-    if (i == 0) flags |= MF_GRAYED;   /* Name is the row's identity, always shown */
-    AppendMenuA(menu, flags, (UINT_PTR)(2000 + i), col_names[i]);
+    static const int shown_order[BROWSER_COLUMNS] = { COL_FAV, 0, 1, 2, 3 };   /* as the columns are laid out: the star first */
+    int k;
+    for (k = 0; k < BROWSER_COLUMNS; k++)
+    {
+      i = shown_order[k];
+      UINT flags = MF_STRING | (col_hidden[i] ? MF_UNCHECKED : MF_CHECKED);
+      if (i == 0) flags |= MF_GRAYED;   /* Name is the row's identity, always shown */
+      AppendMenuA(menu, flags, (UINT_PTR)(2000 + i), col_names[i]);
+    }
   }
 
   /* Documented Windows workaround (MSDN, TrackPopupMenu remarks): if the
