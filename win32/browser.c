@@ -2099,8 +2099,8 @@ void browser_toolbar_update(void)
   /* Play needs a game picked in the list. */
   EnableWindow(tb_play, !emu_running && panel_list && ListView_GetSelectedCount(panel_list) > 0);
 
-  /* Refresh and Favorites Only are about the game list: nothing to do until a ROMs folder is set. */
-  EnableWindow(tb_refresh, gui.rom_dir[0] != 0);
+  /* Refresh and Favorites Only are about the game list: nothing to do until a ROMs folder is set, or while a game runs. */
+  EnableWindow(tb_refresh, !emu_running && gui.rom_dir[0] != 0);
   EnableWindow(tb_fav, !emu_running && gui.rom_dir[0] != 0);
   EnableWindow(tb_stop, emu_running);
   EnableWindow(tb_reset, emu_running);
