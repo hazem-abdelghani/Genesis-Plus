@@ -1603,7 +1603,7 @@ static const char menu_guide_text[] =
   "  Show Toolbar, Show Search Bar, Show Filter Bar:\r\n"
   "   Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, play, stop, reset, pause, start in fullscreen, screenshot, settings, the Video and Audio settings tabs and the player controls; a star button next to Refresh shows only your favorites. The toolbar stays above the game while it runs in a window and goes away in fullscreen. The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, genre (looked up from the game's title in a table built into the program; a game that is not in it is listed as Unknown) and region (read from tags such as (USA) in the file name).\r\n"
   "\r\n"
-  "  Show Favorites Only, Toggle Favorite (Ctrl+D):\r\n"
+  "  Show Favorites Only, Toggle Favorite (Ctrl+D, no menu item):\r\n"
   "   Mark the selected game as a favorite (or click its star in the Favorite column; the right-click menu has Add To Favorites too). Show Favorites Only, or the star on the toolbar, hides every other game. Sorting by the Favorite column puts your favorites first.\r\n"
   "  Reset Window Size:\r\n"
   "   Puts the window back at the size chosen under Video > Window Size.\r\n"

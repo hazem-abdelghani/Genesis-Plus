@@ -97,7 +97,6 @@ BEGIN
     MENUITEM "Show F&ilter Bar",                IDM_VIEW_FILTERBAR
     MENUITEM SEPARATOR
     MENUITEM "Show &Favorites Only",             IDM_VIEW_FAVONLY
-    MENUITEM "Toggle F&avorite\tCtrl+D",          IDM_VIEW_TOGGLEFAV
     MENUITEM SEPARATOR
     MENUITEM "&Reset Window Size",              IDM_VIEW_RESETWINDOW
   END
