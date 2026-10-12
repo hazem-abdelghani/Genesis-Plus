@@ -71,11 +71,11 @@ static const char *const it_lockon[]   = { "None", "Game Genie", "Action Replay 
 
 static const SRow rows_view[] =
 {
-  CHOICE("View mode:",            IDM_VIEW_LIST, it_viewmode, "How the game browser shows your games: a list or a grid of covers."),
-  CHECK ("Show the Favorite column", IDM_VIEW_COL_FAV, "Show the star column in the list view. Click a star to make a game a favorite (Ctrl+D does it for the selected game)."),
-  CHECK ("Show the Console column", IDM_VIEW_COL_BASE + 1, "Show the Console column in the list view."),
-  CHECK ("Show the Folder column",  IDM_VIEW_COL_BASE + 2, "Show the Folder column in the list view."),
-  CHECK ("Show the Size column",    IDM_VIEW_COL_BASE + 3, "Show the Size column in the list view."),
+  CHOICE("View Mode:",            IDM_VIEW_LIST, it_viewmode, "How the game browser shows your games: a list or a grid of covers."),
+  CHECK ("Show the Favorite Column", IDM_VIEW_COL_FAV, "Show the star column in the list view. Click a star to make a game a favorite (Ctrl+D does it for the selected game)."),
+  CHECK ("Show the Console Column", IDM_VIEW_COL_BASE + 1, "Show the Console column in the list view."),
+  CHECK ("Show the Genre Column",   IDM_VIEW_COL_EXTRA + 0, "Show each game's genre in the list view."),
+  CHECK ("Clean Game Names", IDM_VIEW_CLEANNAMES, "Hide the (...) and [...] tags and the extension: show \"Sonic The Hedgehog\" instead of \"Sonic The Hedgehog (USA, Europe) [!].md\" in the game list."),
   CHOICE("Theme:",                IDM_VIDEO_THEME_BASE, it_theme, "System follows Windows; Light or Dark forces one."),
   CHECK ("Larger UI",             IDM_VIDEO_LARGE_UI, "Bigger menus, dialogs and toolbar."),
   CHECK ("Toolbar in Fullscreen", IDM_VIEW_FSTOOLBAR, "In fullscreen, show the toolbar (with the menu bar) when the mouse touches the top edge of the screen."),
@@ -83,64 +83,72 @@ static const SRow rows_view[] =
   CHECK ("Show Search Bar",       IDM_VIEW_SEARCHBAR, "Show the search box that narrows the game list as you type (Ctrl+F jumps to it)."),
   CHECK ("Show Filter Bar",       IDM_VIEW_FILTERBAR, "Show the bar that narrows the list by console, region and folder."),
   CHECK ("Show Favorites Only",   IDM_VIEW_FAVONLY, "Show only the games marked as favorites."),
+  CHECK ("Show Recently Played", IDM_VIEW_SORT_RECENT, "Shows the last few games you opened as a group at the top of the list, above all the others. Choose it again to switch it off."),
   CHECK ("Enable Rewind",         IDM_EMU_REWIND, "Keep a history of recent play so holding Backspace runs it backwards. Uses about 200 MB and some CPU; not available during netplay."),
+  CHECK ("Auto Resume", IDM_EMU_AUTOSAVE, "Save the game when you close it, and offer to carry on from there the next time you open it."),
+  CHECK ("Slow Motion",           IDM_EMU_SLOWMO, "Run the game at half speed (the sound slows down with it)."),
   CHECK ("Pause When Inactive",   IDM_EMU_PAUSE_UNFOCUSED, "Pause the game while another window has focus."),
-  CHOICE("Screenshot output:",    IDM_TOOLS_SHOT_BASE, it_shot, "Final: the render filter applied, stretched to 4:3. Corrected: the plain picture at 640x480. Raw: exactly what the emulator drew, at its own size."),
+  CHOICE("Screenshot Output:",    IDM_TOOLS_SHOT_BASE, it_shot, "Final: the render filter applied, stretched to 4:3. Corrected: the plain picture at 640x480. Raw: exactly what the emulator drew, at its own size."),
 };
 
 static const SRow rows_video[] =
 {
-  CHOICE("Window size:",          IDM_VIDEO_SCALE_BASE, it_scale, "Size of the game window, 1x to 6x the console's picture."),
+  CHOICE("Window Size:",          IDM_VIDEO_SCALE_BASE, it_scale, "Size of the game window, 1x to 6x the console's picture."),
   CHECK ("Start ROM in Fullscreen", IDM_VIDEO_FULLSCREEN_START, "Start every game in fullscreen. Esc or Alt+Enter toggles it."),
   CHECK ("Always on Top",         IDM_VIDEO_ALWAYS_ON_TOP, "Keep the window above every other window."),
-  { K_FILTER, "Render filter:", 0, 0, NULL, "Pixel-art scalers and CRT looks (Scale2x, Smooth, xBRZ, Scanlines, CRT...) applied before the picture is shown." },
+  { K_FILTER, "Render Filter:", 0, 0, NULL, "Pixel-art scalers and CRT looks (Scale2x, Smooth, xBRZ, Scanlines, CRT...) applied before the picture is shown." },
   CHECK ("Smooth Scaling",        IDM_VIDEO_SMOOTH, "Soft edges when the picture is enlarged."),
+  CHECK ("Integer Scaling",       IDM_VIDEO_INTSCALE, "Enlarge the picture by whole multiples only (1x, 2x, 3x ...), so every pixel is the same size. It is centered, with borders, when the window is between two sizes."),
   CHECK ("Brighten",              IDM_VIDEO_BRIGHTEN, "A gentle brightness lift."),
   CHECK ("VSync",                 IDM_VIDEO_VSYNC, "Wait for the screen's refresh after each frame so motion is even. Skipped for a frame whenever the sound buffer runs low, so it never causes crackle."),
   { K_BREAK, NULL, 0, 0, NULL, NULL },
-  CHOICE("NTSC filter:",          IDM_VIDEO_NTSC_BASE, it_ntsc, "Composite, S-Video or RGB television look."),
-  CHOICE("Aspect ratio:",         IDM_VIDEO_ASPECT_BASE, it_aspect, "Square pixels, 4:3 as on a CRT, or fill the window."),
+  CHOICE("NTSC Filter:",          IDM_VIDEO_NTSC_BASE, it_ntsc, "Composite, S-Video or RGB television look."),
+  CHOICE("Aspect Ratio:",         IDM_VIDEO_ASPECT_BASE, it_aspect, "Square pixels, 4:3 as on a CRT, or fill the window."),
   CHOICE("Borders:",              IDM_VIDEO_OVERSCAN_BASE, it_borders, "Hide or show the overscan borders (top/bottom, left/right)."),
-  CHOICE("Interlaced mode:",      IDM_VIDEO_INTERLACE_BASE, it_interlace, "Single Field (the default) or Double Field, for games that use the 448-line interlaced mode."),
+  CHOICE("Interlaced Mode:",      IDM_VIDEO_INTERLACE_BASE, it_interlace, "Single Field (the default) or Double Field, for games that use the 448-line interlaced mode."),
   CHOICE("Frameskip:",            IDM_VIDEO_FRAMESKIP_BASE, it_frameskip, "Skip drawing some frames on a slow PC: Off, Auto, or Manual by audio-buffer level. Not used during netplay or recording."),
   CHOICE("Renderer:",             IDM_VIDEO_RENDERER_BASE, it_renderer, "GDI draws with the CPU; Direct3D 9 and 11 use the graphics card (each falls back to GDI if unavailable). GPU shaders need Direct3D 11."),
-  CHOICE("LCD ghosting:",         IDM_VIDEO_LCD_BASE, it_lcd, "Bright pixels fade slowly, like a handheld screen."),
+  CHOICE("LCD Ghosting:",         IDM_VIDEO_LCD_BASE, it_lcd, "Bright pixels fade slowly, like a handheld screen."),
   CHOICE("Scanlines:",            IDM_VIDEO_SCANLINE_BASE, it_scan, "Dark lines between rows: Off, 25, 50, 75 or 100%."),
 #ifdef _WIN64
-  { K_SHADER, "GPU shader:", 0, 0, NULL, "Run a librashader (.slangp) shader chain on top of the picture. Direct3D 11 only." },      /* along the bottom, under both columns */
+  { K_SHADER, "GPU Shader:", 0, 0, NULL, "Run a librashader (.slangp) shader chain on top of the picture. Direct3D 11 only." },      /* along the bottom, under both columns */
 #endif
 };
 
 static const SRow rows_audio[] =
 {
   CHECK ("Mute",                  IDM_AUDIO_ENABLE, "Silence the sound; untick to hear it again."),
-  CHOICE("FM chip:",              IDM_AUDIO_FMCORE_BASE, it_fm, "Which Genesis FM sound chip is emulated: YM2612 or YM3438, the Nuked versions (default YM2612 Nuked) or MAME."),
-  CHOICE("Sample rate:",          IDM_AUDIO_RATE_BASE, it_rate, "Audio sample rate: 44100 or 48000 Hz."),
+  CHOICE("FM Chip:",              IDM_AUDIO_FMCORE_BASE, it_fm, "Which Genesis FM sound chip is emulated: YM2612 or YM3438, the Nuked versions (default YM2612 Nuked) or MAME."),
+  CHOICE("Sample Rate:",          IDM_AUDIO_RATE_BASE, it_rate, "Audio sample rate: 44100 or 48000 Hz."),
   CHECK ("High-Quality PSG Resampling", IDM_AUDIO_HQPSG, "Cleaner sound from the PSG (the console's square-wave chip)."),
   CHECK ("Low-Pass Filter",       IDM_AUDIO_LOWPASS, "A soft high-frequency roll-off."),
+  CHECK ("Mute FM Sound",         IDM_AUDIO_MUTE_FM, "Silence the FM chip (the main music) and keep the rest."),
+  CHECK ("Mute PSG Sound",        IDM_AUDIO_MUTE_PSG, "Silence the PSG chip (the square-wave sound) and keep the rest."),
   CHECK ("Mono Output",           IDM_AUDIO_MONO, "Mix the sound to mono instead of stereo."),
   BUTTON("Levels and Latency...", IDM_AUDIO_SETTINGS, "Master volume, FM and PSG levels, CD audio, and how many frames of sound are buffered."),
-  BUTTON("Advanced...",           IDM_AUDIO_ADVANCED, "Audio filter (Off, Low-Pass or 3-Band EQ), High-Quality FM, Master System FM, and Sega CD PCM volume."),
+  BUTTON("Advanced Audio...",           IDM_AUDIO_ADVANCED, "Audio filter (Off, Low-Pass or 3-Band EQ), High-Quality FM, Master System FM, and Sega CD PCM volume."),
 };
 
 static const SRow rows_input[] =
 {
+  BUTTON("Hotkeys...",   IDM_INPUT_HOTKEYS, "Change the keyboard shortcuts: Save State, Pause, Fullscreen and the rest."),
   BUTTON("Controls...",  IDM_INPUT_P1, "Set keyboard keys and gamepad buttons for Player 1 and Player 2, the hotkeys and the stick deadzone."),
-  CHOICE("Port A device:",        IDM_INPUT_PORTA_BASE, it_porta, "What is plugged into controller port A: a pad, mouse, light gun, Team Player and so on."),
-  CHOICE("Port B device:",        IDM_INPUT_PORTB_BASE, it_portb, "What is plugged into controller port B: a pad, mouse, light gun, Team Player and so on."),
+  CHOICE("Port A Device:",        IDM_INPUT_PORTA_BASE, it_porta, "What is plugged into controller port A: a pad, mouse, light gun, Team Player and so on."),
+  CHOICE("Port B Device:",        IDM_INPUT_PORTB_BASE, it_portb, "What is plugged into controller port B: a pad, mouse, light gun, Team Player and so on."),
   CHECK ("Enable Background Input", IDM_INPUT_BACKGROUND, "Keep reading the keyboard pad keys and gamepads while another window has focus."),
 };
 
 static const SRow rows_options[] =
 {
   CHOICE("Region:",               IDM_EMU_REGION_BASE, it_region, "Which region the console reports to the game: detect from the ROM, USA, Europe or Japan."),
-  CHOICE("Force VDP mode:",       IDM_EMU_VDPMODE_BASE, it_vdp, "Run the video timing at 60 Hz (NTSC) or 50 Hz (PAL) whatever the region says."),
+  CHOICE("Force VDP Mode:",       IDM_EMU_VDPMODE_BASE, it_vdp, "Run the video timing at 60 Hz (NTSC) or 50 Hz (PAL) whatever the region says."),
   CHOICE("Console:",              IDM_EMU_SYSTEM_BASE, it_console, "Detect the console from the game, or force a specific model."),
-  CHOICE("Lock-on cartridge:",    IDM_EMU_LOCKON_BASE, it_lockon, "Attach a Game Genie, Action Replay or Sonic & Knuckles to the game."),
+  CHOICE("Lock-On Cartridge:",    IDM_EMU_LOCKON_BASE, it_lockon, "Attach a Game Genie, Action Replay or Sonic & Knuckles to the game."),
   CHECK ("Boot from BIOS When Available", IDM_EMU_BIOS, "Run the console's start-up ROM when a BIOS file is present in the bios folder."),
   CHECK ("Emulate Address Error Exceptions", IDM_EMU_ADDRERROR, "Hardware-accurate crashes on bad memory access; turn off only for a few hacked games."),
   CHECK ("Show Extended Game Gear Screen", IDM_VIDEO_GGEXTRA, "Show the whole Game Gear picture instead of only the part its screen displayed."),
   CHECK ("Show Master System Side Borders", IDM_VIDEO_SMSBORDER, "Show the 8-pixel columns at each side, which are cropped by default."),
+  CHECK ("Show On-Screen Messages", IDM_OPTIONS_OSD, "Show short messages over the picture, such as \"Saved to slot 3\" or the screenshot name."),
   CHECK ("Show Frame Rate",       IDM_VIDEO_SHOWFPS, "Show frames per second on screen."),
 };
 
@@ -158,10 +166,12 @@ static const SPage pages[] =
 #define ROW_ID_BASE 4000
 #define SHADER_EDIT_ID   5001      /* the shader box's file edit and its ... button */
 #define SHADER_BROWSE_ID 5002
+#define RESUME_BTN_ID    5003      /* "Restore Dialog", beside Auto Resume */
 #define MAX_ROWS    96
 
 static const SRow *s_row[MAX_ROWS];
 static HWND s_ctl[MAX_ROWS];
+static HWND s_resume_btn;
 static HWND s_page[NPAGES];
 static int  s_nrows;
 
@@ -208,6 +218,8 @@ static void sync_shader(void);
 static void sync_all(void)
 {
   int i;
+
+  if (s_resume_btn) EnableWindow(s_resume_btn, gui.resume_choice != 0);
 
   for (i = 0; i < s_nrows; i++)
   {
@@ -615,7 +627,7 @@ static void build_page(HWND dlg, int p, const RECT *rc, HFONT font)
   for (i = 0; i < pg->count; i++) total += row_span(&pg->rows[i]);
   cols = (total > 8) ? 2 : 1;
   per_col = (total + cols - 1) / cols;
-  colw = (w - 2 * m - (cols - 1) * TBS(16)) / cols;
+  colw = (w - 2 * m - TBS(16)) / 2;   /* the same width on every tab, one column or two */
 
   s_page[p] = CreateWindowExA(WS_EX_CONTROLPARENT, "GPSettingsPage", "",
                               WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | (p == 0 ? WS_VISIBLE : 0),
@@ -640,8 +652,26 @@ static void build_page(HWND dlg, int p, const RECT *rc, HFONT font)
 
     if (r->kind == K_CHECK)
     {
+      /* Only as wide as the box and its words, so a click beside them does nothing. */
+      int cw = colw;
+      {
+        HDC mdc = GetDC(dlg);
+        HGDIOBJ of = SelectObject(mdc, font);
+        SIZE sz;
+        if (GetTextExtentPoint32A(mdc, r->label, lstrlenA(r->label), &sz)) cw = sz.cx + TBS(26);
+        SelectObject(mdc, of);
+        ReleaseDC(dlg, mdc);
+        if (cw > colw) cw = colw;
+      }
       c = CreateWindowExA(0, "BUTTON", r->label, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                          x, y, colw, TBS(22), s_page[p], (HMENU)(INT_PTR)(ROW_ID_BASE + idx), g_inst, NULL);
+                          x, y, cw, TBS(22), s_page[p], (HMENU)(INT_PTR)(ROW_ID_BASE + idx), g_inst, NULL);
+      if (r->id == IDM_EMU_AUTOSAVE)
+      {
+        s_resume_btn = CreateWindowExA(0, "BUTTON", "Restore Dialog", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                                       x + cw + TBS(8), y - 1, TBS(100), TBS(24), s_page[p], (HMENU)(INT_PTR)RESUME_BTN_ID, g_inst, NULL);
+        SendMessage(s_resume_btn, WM_SETFONT, (WPARAM)font, TRUE);
+        add_tip(dlg, s_resume_btn, "Bring back the \"Resume where you left off?\" question if you ticked \"Do not ask again\". Greyed while the question is already switched on.", font);
+      }
     }
     else if (r->kind == K_BUTTON)
     {
@@ -747,7 +777,8 @@ static void restore_defaults(HWND dlg)
       for (k = 0; k < r->n; k++)
         if (menu_checked(r->id + k)) { def[i] = k; break; }
     if (r->kind == K_CHECK && r->id == IDM_VIEW_SEARCHBAR) def[i] = 0;
-    if (r->kind == K_CHECK && ((r->id > IDM_VIEW_COL_BASE && r->id < IDM_VIEW_COL_BASE + 4) || r->id == IDM_VIEW_COL_FAV)) def[i] = 1;   /* every column shown */   /* off by default, whatever the menu reads from (Ctrl+F can force it on) */
+    if (r->kind == K_CHECK && ((r->id > IDM_VIEW_COL_BASE && r->id < IDM_VIEW_COL_BASE + 2) || r->id == IDM_VIEW_COL_FAV)) def[i] = 1;   /* these columns shown ... */
+    if (r->kind == K_CHECK && r->id >= IDM_VIEW_COL_EXTRA && r->id < IDM_VIEW_COL_EXTRA + 4) def[i] = 0;   /* ... the extra ones hidden */   /* off by default, whatever the menu reads from (Ctrl+F can force it on) */
   }
 
   gui = og;
@@ -796,6 +827,7 @@ static INT_PTR CALLBACK settings_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
       RECT rc, trc;
       int p;
       s_nrows = 0;
+      s_resume_btn = NULL;
       s_tip = NULL;
       tabs_hot = -1;
       SetRectEmpty(&s_frame_rc);
@@ -931,6 +963,14 @@ static INT_PTR CALLBACK settings_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
           SetForegroundWindow(dlg);
           sync_all();
         }
+        return TRUE;
+      }
+
+      if (id == RESUME_BTN_ID && code == BN_CLICKED)
+      {
+        gui.resume_choice = 0;      /* the Auto Resume question is asked again */
+        config_save();
+        sync_all();
         return TRUE;
       }
 

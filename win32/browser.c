@@ -22,9 +22,11 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <commdlg.h>
+#include <uxtheme.h>
 #include <shlobj.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
 
 #include "shared.h"
 #include "gui.h"
@@ -37,18 +39,22 @@
 
 #define BROWSER_MAX_ENTRIES 4000
 #define BROWSER_MAX_DEPTH   6
-#define BROWSER_COLUMNS     5
-#define COL_FAV             4   /* the star; shown first, but numbered last so the others keep their numbers */
+#define BROWSER_COLUMNS     4
+#define COL_FAV             2   /* the star; shown first, but numbered after Name and Console */
+#define COL_GENRE           3
+#define COL_RECENT          4   /* not a column: sorts by when a game was last played (the number just past the last column) */
+#define RECENT_GROUP_SIZE   5   /* how many games the group at the top holds */
+#define COL_FIRST_EXTRA     3   /* columns from here on start hidden (gui.browser_col_extra says which are shown) */
 
 typedef struct
 {
   char  full_path[GUI_PATH_LEN];
   char  name[128];
   char  console[40];
-  char  folder[GUI_PATH_LEN];
   char  region[24];        /* guessed from the file name, for the filter bar */
   char  genre[28];         /* looked up by title, "" when unknown, for the filter bar */
   signed char fav;         /* 1 when the game is a favorite (refreshed whenever the list is built) */
+  unsigned long long last_played;   /* Unix time, 0 = never (refreshed with fav) */
   DWORD size_bytes;
   FILETIME mtime;          /* with size_bytes: tells a rescan the file is unchanged */
   signed char cover_ext;   /* COVERART_UNCHECKED until the grid first looks this ROM's cover up, then cached */
@@ -85,6 +91,18 @@ static const char *cached_archive_console(const char *full, const WIN32_FIND_DAT
    whenever a filter is active. */
 static int filtered_index[BROWSER_MAX_ENTRIES];
 static int filtered_count;
+/* A row that is not a game: -1 = the "Recently Played" heading, -2 = the "All Games" heading (list view only). */
+#define ROW_HEAD_RECENT (-1)
+#define ROW_HEAD_ALL    (-2)
+static int recent_group_n;   /* games in the Recently Played group at the top */
+static void browser_apply_filter(void);
+
+/* The game on a row, or NULL for a heading or no such row. */
+static browser_entry_t *row_entry(int row)
+{
+  if (row < 0 || row >= filtered_count || filtered_index[row] < 0) return NULL;
+  return &entries[filtered_index[row]];
+}
 
 /* The panel's own child controls, created once and reused for the life of
    the app -- shown when nothing is running, hidden the moment it is. The
@@ -103,7 +121,7 @@ static HWND panel_choose;
 static int  panel_visible;
 
 /* Toolbar buttons. */
-static HWND tb_open, tb_refresh, tb_fav, tb_play, tb_stop, tb_reset, tb_pause, tb_fs, tb_shot,
+static HWND tb_open, tb_refresh, tb_fav, tb_play, tb_pause, tb_stop, tb_reset, tb_fs, tb_shot,
             tb_set, tb_video, tb_audio, tb_ctl, tb_sep[2];
 
 #define TOOLBAR_H TBS(40)
@@ -118,21 +136,34 @@ static int  search_forced;
    at the current window size, not a stale value from before a resize. */
 static int col_hidden[BROWSER_COLUMNS];
 static int last_list_w = 300;
-static const char *col_names[BROWSER_COLUMNS] = { "Name", "Console", "Folder", "Size", "Favorite" };
+static const char *col_names[BROWSER_COLUMNS] = { "Name", "Console", "Favorite", "Genre" };
 
-/* The star column has a fixed width; the other four share what is left by percent. */
+/* The star and Genre have a fixed width; the other four share what is
+   left by percent. */
 #define FAV_COL_W TBS(56)
+
+static int fixed_col_w(int i)
+{
+  switch (i)
+  {
+    case COL_FAV:   return FAV_COL_W;
+    case COL_GENRE: return TBS(120);
+  }
+  return 0;
+}
 
 static int list_pct_base(void)
 {
-  int w = last_list_w - (col_hidden[COL_FAV] ? 0 : FAV_COL_W);
-  return w > 1 ? w : 1;
+  int i, w = last_list_w;
+  for (i = COL_FAV; i < BROWSER_COLUMNS; i++)
+    if (!col_hidden[i]) w -= fixed_col_w(i);
+  return w > 100 ? w : 100;
 }
 
 static int col_width(int i)
 {
   if (col_hidden[i]) return 0;
-  if (i == COL_FAV) return FAV_COL_W;
+  if (i >= COL_FAV) return fixed_col_w(i);
   return (list_pct_base() * gui.browser_col_pct[i]) / 100;
 }
 
@@ -274,21 +305,6 @@ static const char *classify_archive(const char *full_path)
 
   unzClose(zf);
   return "Archive";
-}
-
-static void format_size(DWORD bytes, char *out, int out_len)
-{
-  if (bytes >= 1024 * 1024)
-  {
-    wsprintfA(out, "%lu.%01lu MB",
-              (unsigned long)(bytes / (1024 * 1024)),
-              (unsigned long)(((bytes % (1024 * 1024)) * 10) / (1024 * 1024)));
-  }
-  else
-  {
-    wsprintfA(out, "%lu KB", (unsigned long)((bytes + 1023) / 1024));
-  }
-  (void)out_len;
 }
 
 /* Case-insensitive substring test -- lstrcmpiA compares whole strings, not
@@ -579,7 +595,6 @@ static void scan_dir(const char *dir, const char *rel, int depth)
       lstrcpynA(e->full_path, full, sizeof(e->full_path));
       lstrcpynA(e->name, fd.cFileName, sizeof(e->name));
       lstrcpynA(e->console, console, sizeof(e->console));
-      lstrcpynA(e->folder, rel, sizeof(e->folder));
       e->size_bytes = fd.nFileSizeLow;   /* every supported format fits well under 4 GB */
       e->mtime = fd.ftLastWriteTime;
       e->cover_ext = COVERART_UNCHECKED;
@@ -736,9 +751,9 @@ static void update_status_count(void)
   {
     wsprintfA(count_text, "%d+ games (capped)", entry_count);
   }
-  else if (filtered_count != entry_count)
+  else if (filtered_count - (recent_group_n > 0 && !gui.browser_grid_view ? 2 : 0) != entry_count)
   {
-    wsprintfA(count_text, "%d of %d game%s", filtered_count, entry_count,
+    wsprintfA(count_text, "%d of %d game%s", filtered_count - (recent_group_n > 0 && !gui.browser_grid_view ? 2 : 0), entry_count,
               (entry_count == 1) ? "" : "s");
   }
   else
@@ -761,13 +776,15 @@ static int compare_entries(const void *a, const void *b)
   const browser_entry_t *ea = &entries[ia];
   const browser_entry_t *eb = &entries[ib];
   int result;
+  int sort_col = gui.browser_sort_column;
+  int sort_asc = gui.browser_sort_ascending;
 
-  switch (gui.browser_sort_column)
+  switch (sort_col)
   {
     case 1:  result = lstrcmpiA(ea->console, eb->console); break;
-    case 2:  result = lstrcmpiA(ea->folder, eb->folder);   break;
-    case 3:  result = (ea->size_bytes > eb->size_bytes) - (ea->size_bytes < eb->size_bytes); break;
     case COL_FAV: result = (int)eb->fav - (int)ea->fav; break;   /* favorites first when ascending */
+    case COL_GENRE: result = lstrcmpiA(ea->genre, eb->genre); break;
+    case COL_RECENT: result = (ea->last_played > eb->last_played) - (ea->last_played < eb->last_played); break;
     default: result = lstrcmpiA(ea->name, eb->name);        break;
   }
 
@@ -776,10 +793,10 @@ static int compare_entries(const void *a, const void *b)
      lot of these; most ROMs share a folder) would fall back to
      whatever order they happened to be discovered in, undoing the
      point of sorting by that column at all. */
-  if (result == 0 && gui.browser_sort_column != 0)
+  if (result == 0 && sort_col != 0)
     result = lstrcmpiA(ea->name, eb->name);
 
-  return gui.browser_sort_ascending ? result : -result;
+  return sort_asc ? result : -result;
 }
 
 #define BROWSER_ICON_SIZE_MIN  48
@@ -911,8 +928,7 @@ static void browser_grid_refresh_cover(int item_index)
 {
   /* The cover file for this entry just changed: forget what was remembered
      about it (including "no cover"), so it is looked up again. */
-  if (item_index >= 0 && item_index < filtered_count)
-    entries[filtered_index[item_index]].cover_ext = COVERART_UNCHECKED;
+  if (row_entry(item_index)) row_entry(item_index)->cover_ext = COVERART_UNCHECKED;
 
   if (gui.browser_grid_view) browser_rebuild_grid_images();
 }
@@ -927,6 +943,7 @@ void browser_apply_view_mode(void)
   if (!panel_list) return;
 
   ListView_SetView(panel_list, gui.browser_grid_view ? LV_VIEW_ICON : LV_VIEW_DETAILS);
+  if (gui.recent_mode) browser_apply_filter();   /* the headings only exist in the list view */
 
   if (gui.browser_grid_view)
   {
@@ -976,6 +993,30 @@ void browser_grid_zoom(int delta)
   SetTimer(panel_list, GRID_ZOOM_TIMER_ID, 150, NULL);
 }
 
+/* The name for the list: with "Hide (...) and [...]" on, the tags in brackets are left out. */
+static void display_name(const char *name, char *out, int out_len)
+{
+  int o = 0, depth = 0;
+  const char *p, *end;
+
+  if (!gui.clean_names) { lstrcpynA(out, name, out_len); return; }
+  {
+    const char *dot = strrchr(name, '.');
+    end = (dot && dot > name && lstrlenA(dot) <= 6 && !strchr(dot, ' ')) ? dot : name + lstrlenA(name);   /* the extension goes too */
+  }
+  for (p = name; p < end && o < out_len - 1; p++)
+  {
+    if (*p == '(' || *p == '[') { depth++; continue; }
+    if ((*p == ')' || *p == ']') && depth > 0) { depth--; continue; }
+    if (depth) continue;
+    if (*p == ' ' && (o == 0 || out[o - 1] == ' ')) continue;
+    out[o++] = *p;
+  }
+  while (o > 0 && out[o - 1] == ' ') o--;
+  out[o] = '\0';
+  if (!out[0]) lstrcpynA(out, name, out_len);   /* nothing but tags: keep the name */
+}
+
 static void browser_apply_filter(void)
 {
   char search[128];
@@ -992,6 +1033,7 @@ static void browser_apply_filter(void)
   for (i = 0; i < entry_count; i++)
   {
     entries[i].fav = (signed char)config_fav_has(entries[i].full_path);
+    entries[i].last_played = history_last(entries[i].full_path);
     if (gui.favorites_only && !entries[i].fav) continue;
     if (!contains_ci(entries[i].name, search)) continue;
     if (!gui.hide_filterbar)
@@ -1005,13 +1047,54 @@ static void browser_apply_filter(void)
 
   qsort(filtered_index, filtered_count, sizeof(filtered_index[0]), compare_entries);
 
+  /* The last few games played move to the front, as a group of their own. */
+  recent_group_n = 0;
+  if (gui.recent_mode && filtered_count > 0)
+  {
+    int *tmp = (int *)malloc(sizeof(int) * (size_t)filtered_count);
+    if (tmp)
+    {
+      int n = 0, k, best;
+      char *taken = (char *)calloc((size_t)filtered_count, 1);
+      while (taken && n < RECENT_GROUP_SIZE)
+      {
+        best = -1;
+        for (k = 0; k < filtered_count; k++)
+          if (!taken[k] && entries[filtered_index[k]].last_played &&
+              (best < 0 || entries[filtered_index[k]].last_played > entries[filtered_index[best]].last_played)) best = k;
+        if (best < 0) break;
+        taken[best] = 1;
+        tmp[n++] = filtered_index[best];
+      }
+      if (taken && n > 0)
+      {
+        int rest = n;
+        for (k = 0; k < filtered_count; k++)
+          if (!taken[k]) tmp[rest++] = filtered_index[k];
+        memcpy(filtered_index, tmp, sizeof(int) * (size_t)filtered_count);
+        recent_group_n = n;
+      }
+      free(taken);
+      free(tmp);
+    }
+  }
+
+  /* In the list view the two parts get a heading row each. */
+  if (recent_group_n > 0 && !gui.browser_grid_view && filtered_count + 2 <= BROWSER_MAX_ENTRIES)
+  {
+    memmove(filtered_index + recent_group_n + 2, filtered_index + recent_group_n, sizeof(int) * (size_t)(filtered_count - recent_group_n));
+    memmove(filtered_index + 1, filtered_index, sizeof(int) * (size_t)recent_group_n);
+    filtered_index[0] = ROW_HEAD_RECENT;
+    filtered_index[recent_group_n + 1] = ROW_HEAD_ALL;
+    filtered_count += 2;
+  }
+
   SendMessage(panel_list, WM_SETREDRAW, FALSE, 0);
   SendMessage(panel_list, LVM_DELETEALLITEMS, 0, 0);
 
   for (row = 0; row < filtered_count; row++)
   {
     LVITEMA item;
-    char sizebuf[32];
     int idx = filtered_index[row];
 
     ZeroMemory(&item, sizeof(item));
@@ -1019,20 +1102,26 @@ static void browser_apply_filter(void)
     item.iItem    = row;
     item.iSubItem = 0;
     item.iImage   = I_IMAGECALLBACK;    /* supplied on demand, see cover_image_index() */
-    item.pszText  = entries[idx].name;
+    if (idx < 0)       /* a heading */
+    {
+      item.iImage = I_IMAGENONE;
+      item.pszText = idx == ROW_HEAD_RECENT ? "Recently Played" : "All Games";
+      SendMessageA(panel_list, LVM_INSERTITEMA, 0, (LPARAM)&item);
+      continue;
+    }
+    {
+      static char shown[160];
+      display_name(entries[idx].name, shown, sizeof(shown));
+      item.pszText = shown;
+    }
     SendMessageA(panel_list, LVM_INSERTITEMA, 0, (LPARAM)&item);
 
     item.iSubItem = 1;
     item.pszText  = entries[idx].console;
     SendMessageA(panel_list, LVM_SETITEMTEXTA, (WPARAM)row, (LPARAM)&item);
 
-    item.iSubItem = 2;
-    item.pszText  = entries[idx].folder[0] ? entries[idx].folder : "(top level)";
-    SendMessageA(panel_list, LVM_SETITEMTEXTA, (WPARAM)row, (LPARAM)&item);
-
-    format_size(entries[idx].size_bytes, sizebuf, sizeof(sizebuf));
-    item.iSubItem = 3;
-    item.pszText  = sizebuf;
+    item.iSubItem = COL_GENRE;
+    item.pszText  = entries[idx].genre;
     SendMessageA(panel_list, LVM_SETITEMTEXTA, (WPARAM)row, (LPARAM)&item);
   }
 
@@ -1095,17 +1184,27 @@ void browser_panel_change_folder(void)
   }
 }
 
+static void update_sort_arrow(void);
+
+/* View > Recently Played at the Top. */
+void browser_toggle_recent(void)
+{
+  gui.recent_mode = !gui.recent_mode;
+  browser_apply_filter();
+  config_save();
+}
+
 static void browser_launch_selected(void)
 {
   int sel = ListView_GetNextItem(panel_list, -1, LVNI_SELECTED);
   char path[GUI_PATH_LEN];
 
-  if (sel < 0 || sel >= filtered_count) return;
+  if (!row_entry(sel)) return;
 
   /* Copy before hiding: hiding the panel doesn't touch entries[], but
      there's no reason to rely on that not changing before emu_load_rom()
      actually reads it back out. */
-  lstrcpynA(path, entries[filtered_index[sel]].full_path, sizeof(path));
+  lstrcpynA(path, row_entry(sel)->full_path, sizeof(path));
 
   emu_load_rom(path);
 }
@@ -1138,9 +1237,14 @@ void browser_toggle_column(int col)
   apply_column_widths();
 
   gui.browser_col_hidden = 0;
-  for (i = 0; i < BROWSER_COLUMNS; i++)
+  gui.browser_col_extra = 0;
+  for (i = 0; i < COL_FIRST_EXTRA; i++)
   {
     if (col_hidden[i]) gui.browser_col_hidden |= (1 << i);
+  }
+  for (i = COL_FIRST_EXTRA; i < BROWSER_COLUMNS; i++)
+  {
+    if (!col_hidden[i]) gui.browser_col_extra |= (1 << (i - COL_FIRST_EXTRA));
   }
   config_save();
 }
@@ -1151,7 +1255,7 @@ static void show_column_menu(int screen_x, int screen_y)
   int i, cmd;
 
   {
-    static const int shown_order[BROWSER_COLUMNS] = { COL_FAV, 0, 1, 2, 3 };   /* as the columns are laid out: the star first */
+    static const int shown_order[BROWSER_COLUMNS] = { COL_FAV, 0, 1, COL_GENRE };   /* as the columns are laid out: the star first */
     int k;
     for (k = 0; k < BROWSER_COLUMNS; k++)
     {
@@ -1295,9 +1399,9 @@ void browser_panel_create(HWND parent)
   tb_fav     = tb_button(panel_toolbar, IDC_TB_FAV, TI_FAV, "Show Favorites Only");
   tb_sep[0]  = tb_separator(panel_toolbar);
   tb_play    = tb_button(panel_toolbar, IDC_TB_PLAY, TI_PLAY, "Play the selected game");
+  tb_pause   = tb_button(panel_toolbar, IDM_EMU_PAUSE, TI_PAUSE, "Pause (F2)");
   tb_stop    = tb_button(panel_toolbar, IDM_EMU_STOP, TI_STOP, "Stop (F3)");
   tb_reset   = tb_button(panel_toolbar, IDM_EMU_RESET, TI_RESET, "Reset (Ctrl+R)");
-  tb_pause   = tb_button(panel_toolbar, IDM_EMU_PAUSE, TI_PAUSE, "Pause (F2)");
   tb_fs      = tb_button(panel_toolbar, IDM_VIDEO_FULLSCREEN, TI_FULLSCREEN, "Fullscreen (Alt+Enter)");
   tb_shot    = tb_button(panel_toolbar, IDM_FILE_SCREENSHOT, TI_SCREENSHOT, "Save a Screenshot (F12)");
   tb_sep[1]  = tb_separator(panel_toolbar);
@@ -1355,11 +1459,15 @@ void browser_panel_create(HWND parent)
   SendMessage(panel_choose, WM_SETFONT, (WPARAM)font, TRUE);
 
   SendMessage(panel_list, LVM_SETEXTENDEDLISTVIEWSTYLE,
-              LVS_EX_FULLROWSELECT, LVS_EX_FULLROWSELECT);
+              LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);   /* no grid lines between the columns */
 
-  for (i = 0; i < BROWSER_COLUMNS; i++)
+  for (i = 0; i < COL_FIRST_EXTRA; i++)
   {
     col_hidden[i] = (gui.browser_col_hidden & (1 << i)) ? 1 : 0;
+  }
+  for (i = COL_FIRST_EXTRA; i < BROWSER_COLUMNS; i++)
+  {
+    col_hidden[i] = (gui.browser_col_extra & (1 << (i - COL_FIRST_EXTRA))) ? 0 : 1;   /* hidden until switched on */
   }
   col_hidden[0] = 0;   /* Name is the row's identity, never actually toggleable */
 
@@ -1374,7 +1482,7 @@ void browser_panel_create(HWND parent)
     SendMessageA(panel_list, LVM_INSERTCOLUMNA, (WPARAM)i, (LPARAM)&col);
   }
   {
-    int order[BROWSER_COLUMNS] = { COL_FAV, 0, 1, 2, 3 };   /* the star leads, then Name ... Size */
+    int order[BROWSER_COLUMNS] = { COL_FAV, 0, 1, COL_GENRE };   /* the star leads, then Name, Console, Genre */
     SendMessage(panel_list, LVM_SETCOLUMNORDERARRAY, BROWSER_COLUMNS, (LPARAM)order);
   }
   update_sort_arrow();
@@ -1428,6 +1536,28 @@ static int layout_bar(int x, int y, int w)
 
   MoveWindow(panel_bar, x, y, w, ry, TRUE);
   return ry;
+}
+
+static void ensure_rom_loaded(const char *path);
+
+/* Whether a game is picked in the list (File > ROM Information works on it). */
+int browser_has_selection(void)
+{
+  return panel_visible && panel_list && ListView_GetNextItem(panel_list, -1, LVNI_SELECTED) >= 0;
+}
+
+/* File > ROM Information with no game running: the game picked in the list. */
+void browser_show_rom_info(void)
+{
+  int sel;
+  char path[GUI_PATH_LEN];
+
+  if (!browser_has_selection()) return;
+  sel = ListView_GetNextItem(panel_list, -1, LVNI_SELECTED);
+  if (!row_entry(sel)) return;
+  lstrcpynA(path, row_entry(sel)->full_path, sizeof(path));
+  ensure_rom_loaded(path);
+  dlg_rom_info(g_hwnd);
 }
 
 int browser_panel_visible(void)
@@ -1601,26 +1731,22 @@ static void toggle_favorite_row(int row)
   browser_entry_t *e;
   int on;
 
-  if (row < 0 || row >= filtered_count) return;
-  e = &entries[filtered_index[row]];
+  e = row_entry(row);
+  if (!e) return;
   on = !config_fav_has(e->full_path);
-  config_fav_set(e->full_path, on);
+  if (!config_fav_set(e->full_path, on))
+  {
+    gui_status("The favorites list is full: remove one first");
+    return;
+  }
   e->fav = (signed char)on;
   config_save();
+  gui_notify(on ? "Added to favorites: %s" : "Removed from favorites: %s", e->name);
 
   if (gui.favorites_only || gui.browser_sort_column == COL_FAV)
     browser_apply_filter();   /* the list changes: a game leaves it, or moves */
   else
     ListView_RedrawItems(panel_list, row, row);
-}
-
-/* Ctrl+D / View > Toggle Favorite: the selected game. */
-void browser_toggle_favorite(void)
-{
-  int sel;
-  if (!panel_visible || !panel_list) return;
-  sel = ListView_GetNextItem(panel_list, -1, LVNI_SELECTED);
-  toggle_favorite_row(sel);
 }
 
 int browser_favorites_only(void)
@@ -1629,11 +1755,79 @@ int browser_favorites_only(void)
 }
 
 /* The star on the toolbar / View > Show Favorites Only. */
+void browser_refresh_names(void)
+{
+  browser_apply_filter();
+}
+
 void browser_toggle_favorites_only(void)
 {
   gui.favorites_only = !gui.favorites_only;
   browser_apply_filter();
   config_save();
+}
+
+/* The colour Windows itself gives a list heading in the current theme (the original look). */
+static COLORREF heading_theme_color(void)
+{
+  COLORREF c = 0;
+  HTHEME th = OpenThemeData(panel_list, L"LISTVIEW");
+
+  if (th)
+  {
+    /* LVP_GROUPHEADER = 6, LVGH_OPEN = 1, TMT_TEXTCOLOR = 3803 */
+    if (SUCCEEDED(GetThemeColor(th, 6, 1, 3803, &c)))
+    {
+      CloseThemeData(th);
+      return c;
+    }
+    CloseThemeData(th);
+  }
+  return theme_is_dark() ? RGB(60, 90, 190) : RGB(30, 50, 135);
+}
+
+/* The "Recently Played" / "All Games" heading rows: drawn here so they follow Larger UI (a bigger version of the
+   list's own font) and have a blue that is easy to read in both themes. */
+static LRESULT heading_row_paint(NMLVCUSTOMDRAW *cd, int kind)
+{
+  static HFONT hfont;
+  static int hfont_h;
+  HDC dc = cd->nmcd.hdc;
+  RECT rc = cd->nmcd.rc, tr;
+  HFONT base = (HFONT)SendMessage(panel_list, WM_GETFONT, 0, 0);
+  LOGFONTA lf;
+  COLORREF fg = heading_theme_color();
+  HBRUSH bg = CreateSolidBrush(ListView_GetBkColor(panel_list));
+  HGDIOBJ of;
+  HPEN pen, op;
+
+  if (base && GetObjectA(base, sizeof(lf), &lf))
+  {
+    if (gui.large_ui) lf.lfHeight = lf.lfHeight * 12 / 10;   /* bigger only with Larger UI; otherwise the list's own size */
+    if (!hfont || hfont_h != lf.lfHeight)
+    {
+      if (hfont) DeleteObject(hfont);
+      hfont = CreateFontIndirectA(&lf);
+      hfont_h = lf.lfHeight;
+    }
+  }
+  FillRect(dc, &rc, bg);
+  DeleteObject(bg);
+  of = SelectObject(dc, hfont ? hfont : base);
+  SetBkMode(dc, TRANSPARENT);
+  SetTextColor(dc, fg);
+  tr = rc;
+  tr.left += TBS(8);
+  tr.bottom -= 2;
+  DrawTextA(dc, kind == ROW_HEAD_RECENT ? "Recently Played" : "All Games", -1, &tr, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX);
+  SelectObject(dc, of);
+  pen = CreatePen(PS_SOLID, 1, fg);
+  op = SelectObject(dc, pen);
+  MoveToEx(dc, rc.left + TBS(8), rc.bottom - 1, NULL);
+  LineTo(dc, rc.right - TBS(8), rc.bottom - 1);
+  SelectObject(dc, op);
+  DeleteObject(pen);
+  return CDRF_SKIPDEFAULT;
 }
 
 /* Draws the star of a row over its (empty) Favorite cell. */
@@ -1650,6 +1844,10 @@ LRESULT browser_list_customdraw(NMHDR *hdr)
       return CDRF_NOTIFYITEMDRAW;
 
     case CDDS_ITEMPREPAINT:
+      {
+        int row = (int)cd->nmcd.dwItemSpec;
+        if (row >= 0 && row < filtered_count && filtered_index[row] < 0) return heading_row_paint(cd, filtered_index[row]);
+      }
       return CDRF_NOTIFYSUBITEMDRAW;
 
     case CDDS_SUBITEM | CDDS_ITEMPREPAINT:
@@ -1661,9 +1859,9 @@ LRESULT browser_list_customdraw(NMHDR *hdr)
         int row = (int)cd->nmcd.dwItemSpec, sz = TBS(16);
         RECT rc;
 
-        if (row >= 0 && row < filtered_count && ListView_GetSubItemRect(panel_list, row, COL_FAV, LVIR_BOUNDS, &rc))
+        if (row_entry(row) && ListView_GetSubItemRect(panel_list, row, COL_FAV, LVIR_BOUNDS, &rc))
         {
-          int on = entries[filtered_index[row]].fav;
+          int on = row_entry(row)->fav;
           COLORREF c = on ? (theme_is_dark() ? RGB(255, 255, 255) : RGB(0, 0, 0))   /* a solid star in the text color */
                           : (theme_is_dark() ? RGB(120, 120, 120) : RGB(150, 150, 150));
           tb_paint_icon(cd->nmcd.hdc, rc.left + (rc.right - rc.left - sz) / 2, rc.top + (rc.bottom - rc.top - sz) / 2,
@@ -1686,7 +1884,7 @@ int browser_panel_handle_notify(NMHDR *hdr)
     if ((di->item.mask & LVIF_IMAGE) && grid_imagelist &&
         di->item.iItem >= 0 && di->item.iItem < filtered_count)
     {
-      di->item.iImage = cover_image_index(&entries[filtered_index[di->item.iItem]]);
+      di->item.iImage = row_entry(di->item.iItem) ? cover_image_index(row_entry(di->item.iItem)) : I_IMAGENONE;
     }
     return 1;
   }
@@ -1695,6 +1893,24 @@ int browser_panel_handle_notify(NMHDR *hdr)
   {
     NMLISTVIEW *nm = (NMLISTVIEW *)hdr;
     if (nm->uChanged & LVIF_STATE) browser_toolbar_update();
+    if ((nm->uChanged & LVIF_STATE) && (nm->uNewState & LVIS_SELECTED) && !(nm->uOldState & LVIS_SELECTED) &&
+        nm->iItem >= 0 && nm->iItem < filtered_count)
+    {
+      static int last_sel = -1;
+      if (filtered_index[nm->iItem] < 0)
+      {
+        /* A heading cannot be picked: carry on to the game beyond it, in the direction of travel. */
+        int to = (nm->iItem < last_sel) ? nm->iItem - 1 : nm->iItem + 1;
+        if (to < 0 || to >= filtered_count || filtered_index[to] < 0) to = nm->iItem + 1;
+        if (to >= 0 && to < filtered_count && filtered_index[to] >= 0)
+        {
+          ListView_SetItemState(panel_list, to, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+          ListView_EnsureVisible(panel_list, to, FALSE);
+        }
+      }
+      else last_sel = nm->iItem;
+    }
+    if ((nm->uChanged & LVIF_STATE) && ((nm->uNewState ^ nm->uOldState) & LVIS_SELECTED)) gui_update_menu();   /* File > ROM Information follows the selection */
     return 0;
   }
 
@@ -1715,13 +1931,17 @@ int browser_panel_handle_notify(NMHDR *hdr)
 
   if (hdr->idFrom == IDC_BROWSER_LIST && hdr->code == NM_DBLCLK)
   {
-    /* A double click on the star is two toggles, not "play". */
+    /* A double click on the star is two toggles (the first click was handled as NM_CLICK), not "play". */
     LVHITTESTINFO hit;
     ZeroMemory(&hit, sizeof(hit));
     GetCursorPos(&hit.pt);
     ScreenToClient(panel_list, &hit.pt);
-    if (!gui.browser_grid_view && ListView_SubItemHitTest(panel_list, &hit) >= 0 && hit.iSubItem == COL_FAV)
+    if (!gui.browser_grid_view && ListView_SubItemHitTest(panel_list, &hit) >= 0 &&
+        hit.iSubItem == COL_FAV && !col_hidden[COL_FAV])
+    {
+      toggle_favorite_row(hit.iItem);
       return 1;
+    }
     browser_launch_selected();
     return 1;
   }
@@ -1744,6 +1964,7 @@ int browser_panel_handle_notify(NMHDR *hdr)
     update_sort_arrow();
     browser_apply_filter();
     config_save();
+    gui_update_menu();
     return 1;
   }
 
@@ -1817,9 +2038,9 @@ static void show_item_context_menu(int screen_x, int screen_y, int item_index)
   int has_cover;
   int peeked;
 
-  if (item_index < 0 || item_index >= filtered_count) return;
-  lstrcpynA(path, entries[filtered_index[item_index]].full_path, sizeof(path));
-  lstrcpynA(console, entries[filtered_index[item_index]].console, sizeof(console));
+  if (!row_entry(item_index)) return;
+  lstrcpynA(path, row_entry(item_index)->full_path, sizeof(path));
+  lstrcpynA(console, row_entry(item_index)->console, sizeof(console));
   guess_base_name(path, base, sizeof(base));
 
   menu = CreatePopupMenu();
@@ -2049,7 +2270,8 @@ int browser_panel_handle_return(void)
 
   if (ListView_GetNextItem(panel_list, -1, LVNI_SELECTED) < 0 && filtered_count > 0)
   {
-    ListView_SetItemState(panel_list, 0, LVIS_SELECTED | LVIS_FOCUSED,
+    int first = (filtered_index[0] < 0 && filtered_count > 1) ? 1 : 0;
+    ListView_SetItemState(panel_list, first, LVIS_SELECTED | LVIS_FOCUSED,
                           LVIS_SELECTED | LVIS_FOCUSED);
   }
   browser_launch_selected();
@@ -2151,7 +2373,7 @@ void browser_toolbar_layout(void)
 
   if (show_h)
   {
-    HWND row[] = { tb_open, tb_refresh, tb_fav, tb_sep[0], tb_play, tb_stop, tb_reset, tb_pause, tb_fs, tb_shot,
+    HWND row[] = { tb_open, tb_refresh, tb_fav, tb_sep[0], tb_play, tb_pause, tb_stop, tb_reset, tb_fs, tb_shot,
                    tb_sep[1], tb_set, tb_video, tb_audio, tb_ctl };
     int bw = TBS(36), bh = TBS(32), gap = TBS(2), sep = TBS(14), bx = TBS(4), by = (show_h - bh) / 2, k;
 
@@ -2195,4 +2417,11 @@ void browser_toggle_searchbar(void)
   search_forced = 0;
   browser_bars_changed();
   config_save();
+}
+
+/* The genre the list shows for a game, looked up by its file name ("" when unknown). */
+void browser_genre_for(const char *path, char *out, int out_len)
+{
+  const char *name = strrchr(path, '\\');
+  classify_genre(name ? name + 1 : path, out, out_len);
 }

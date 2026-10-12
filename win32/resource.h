@@ -51,7 +51,7 @@
 
 #define IDM_VIEW_LIST             250
 #define IDM_VIEW_GRID             251
-#define IDM_VIEW_COL_BASE         270   /* .. 273: Name (always on), Console, Folder, Size */
+#define IDM_VIEW_COL_BASE         270   /* .. 271: Name (always on), Console */
 #define IDM_VIEW_TOOLBAR          274
 #define IDM_VIEW_SEARCHBAR        275
 #define IDM_VIEW_FILTERBAR        276
@@ -59,9 +59,9 @@
 #define IDM_VIEW_FINDSEARCH       278   /* Ctrl+F */
 #define IDM_OPTIONS_SETTINGS      279   /* Options > Settings... */
 #define IDM_VIEW_COL_FAV          284   /* List Columns > Favorite */
+#define IDM_VIEW_CLEANNAMES       2533  /* View > hide (...) and [...] in game names */
 #define IDM_VIEW_FSTOOLBAR        287   /* View > Toolbar in Fullscreen */
 #define IDM_VIEW_FAVONLY          285   /* View > Show Favorites Only */
-#define IDM_VIEW_TOGGLEFAV        286   /* Ctrl+D: the selected game is, or is not, a favorite */
 #define IDM_OPTIONS_SETTINGS_VIDEO 280  /* toolbar: Settings, on the Video tab */
 #define IDM_OPTIONS_SETTINGS_AUDIO 281  /* toolbar: Settings, on the Audio tab */
 
@@ -107,7 +107,6 @@
 
 /* --- Input ------------------------------------------------------------ */
 #define IDM_INPUT_P1              500
-#define IDM_INPUT_P2              501
 #define IDM_INPUT_PORTA_BASE      510   /* .. 519 */
 #define IDM_INPUT_PORTB_BASE      530   /* .. 539 */
 #define IDM_INPUT_BACKGROUND      540   /* keep reading the controller while another window has focus */
@@ -132,14 +131,13 @@
 #define IDM_BROWSER_CHEATS         833
 #define IDM_BROWSER_SET_COVER      834
 #define IDM_BROWSER_REMOVE_COVER   835
-#define IDM_BROWSER_VIEW_LIST      836
-#define IDM_BROWSER_VIEW_GRID      837
 #define IDM_BROWSER_FAVORITE       838   /* context menu: add to / remove from favorites */
 
 /* --- Dialogs ---------------------------------------------------------- */
 #define IDD_ABOUT                 900
 #define IDD_INPUT                 901
 #define IDC_INPUT_TAB            1099
+#define IDC_INPUT_TEST           1098
 #define IDR_PADIMG               7001
 #define IDR_GENRES               7002
 #define IDD_AUDIO                 902
@@ -272,3 +270,32 @@
 #define IDC_ADV_LABEL_HIGHF      1322
 
 #endif /* _RESOURCE_H_ */
+
+/* --- later additions ------------------------------------------------------ */
+#define IDM_VIDEO_INTSCALE         2502   /* Video > Integer Scaling */
+#define IDM_AUDIO_MUTE_FM          2503   /* Audio > Mute FM Sound */
+#define IDM_AUDIO_MUTE_PSG         2504   /* Audio > Mute PSG Sound */
+#define IDM_EMU_AUTOSAVE           2505   /* Emulation > Auto Resume */
+#define IDM_OPTIONS_OSD            2506   /* Options > Show On-Screen Messages */
+#define IDM_VIEW_COL_EXTRA        2510   /* List Columns > Genre */
+#define IDM_VIEW_SORT_RECENT      2514   /* View > Recently Played at the Top */
+#define IDM_EMU_SLOWMO             2522   /* Emulation > Slow Motion */
+#define IDM_INPUT_HOTKEYS          2523   /* Input > Hotkeys... */
+#define IDD_HOTKEYS               940
+#define IDD_HOTKEYS_LARGE         941
+#define IDC_HK_LIST                1500
+#define IDC_HK_ASSIGN              1501
+#define IDC_HK_CLEAR               1502
+#define IDC_HK_DEFAULTS            1503
+#define IDC_HK_HINT                1504
+#define IDM_FILE_LOADSLOT_BASE    2540   /* .. 2549: Load State > Load State from Slot */
+#define IDM_FILE_SAVESLOT_BASE    2550   /* .. 2559: Save State > Save State to Slot */
+#define IDM_EMU_UNDOSAVE          2560   /* Save State > Undo Save State */
+#define IDC_INPUT_PADHK           1097   /* Controls: Gamepad Hotkeys... */
+#define IDD_PADHK                  944
+#define IDD_PADHK_LARGE            945
+#define IDC_PH_LIST               1521
+#define IDC_PH_HINT               1522
+#define IDC_PH_ASSIGN             1523
+#define IDC_PH_CLEAR              1524
+#define IDC_PH_DEFAULTS           1525

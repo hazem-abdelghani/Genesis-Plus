@@ -824,6 +824,19 @@ static void get_dest_rect(const RECT *area, int sw, int sh, RECT *out)
       dw = aw;
       dh = (int)(aw / ar + 0.5);
     }
+
+    /* Integer scaling: the largest whole multiple of the picture's own size that fits.
+       When not even 1x fits, the plain fit above stays. */
+    if (gui.integer_scale)
+    {
+      int bw = use_43_correction() ? (int)(sh * 4.0 / 3.0 + 0.5) : sw, bh = sh, k;
+      if (bw > 0 && bh > 0)
+      {
+        k = aw / bw;
+        if (ah / bh < k) k = ah / bh;
+        if (k >= 1) { dw = bw * k; dh = bh * k; }
+      }
+    }
   }
 
   if (dw < 1) dw = 1;

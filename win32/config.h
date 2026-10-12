@@ -98,6 +98,7 @@ typedef struct
   int button[PAD_KEYS]; /* button/POV/stick mask per button (namespace depends
                             on device: XInput below GUI_INPUT_XPAD_COUNT,
                             DirectInput at or above it), 0 = unassigned */
+  unsigned turbo;       /* bit per PAD_* index: that button fires on and off while held (A B C X Y Z) */
   int device;           /* -1 keyboard only, else an XInput slot or a
                             DirectInput joystick -- see GUI_INPUT_XPAD_COUNT
                             in gui.h */
@@ -131,10 +132,11 @@ typedef struct
   int  np_port;
   int  np_delay;          /* input delay in frames, 1-4 */
   char np_addr[64];       /* last host address joined */
-  int browser_col_hidden; /* bitmask, one bit per ROM browser list column */
+  int browser_col_hidden; /* bitmask, one bit per ROM browser list column (Name, Console, Favorite) */
+  int browser_col_extra;  /* bitmask of the extra columns that are shown: Genre, Last Played, Play Time, Plays */
   int browser_sort_column; /* which column the ROM browser list is sorted by */
   int browser_sort_ascending;
-  int browser_col_pct[4]; /* user-adjustable column width, as a percent of the list's width */
+  int browser_col_pct[2]; /* user-adjustable column width, as a percent of the list's width */
   int renderer;            /* which output path to use: RENDERER_GDI, RENDERER_D3D9 or
                                RENDERER_D3D11 -- always falls back to GDI automatically
                                if the chosen one is unavailable or fails */
@@ -151,14 +153,21 @@ typedef struct
   int hide_filterbar;
   int browser_grid_view;   /* 0 = report/list view, 1 = icon/grid view with cover art */
   int browser_grid_size;   /* icon size in pixels, adjustable via Ctrl+wheel while in grid view */
-  int key_fast_forward;    /* mappable, defaults to VK_TAB */
-  int key_rewind;          /* mappable, defaults to VK_BACK */
-  int pad_fast_forward;    /* mappable gamepad button, checked on Player 1's device */
-  int pad_rewind;
   int fullscreen_on_load;  /* persists across runs, unlike fullscreen itself --
                                enters fullscreen automatically whenever a ROM loads */
   int show_fps;
+  int clean_names;         /* the game list shows names without the (...) and [...] tags */
+  int recent_mode;         /* the last few games are grouped at the top of the list */
   int favorites_only;      /* the game list shows only the favorites */
+  int hotkey[64];          /* the keyboard shortcuts: virtual key + 0x10000 Ctrl / 0x20000 Shift / 0x40000 Alt (hotkeys.c) */
+  int padhk[16];           /* the pad button (XInput mask) for each gamepad hotkey action, 0 = none; the first two are Fast Forward and Rewind (hotkeys.c) */
+  int slowmo;              /* half speed, without sound */
+  int integer_scale;       /* the picture is enlarged by whole multiples only (sharp pixels) */
+  int mute_fm;             /* silence the FM chip alone */
+  int mute_psg;            /* silence the PSG chip alone */
+  int resume_choice;       /* the Auto Resume question: 0 = ask, 1 = always resume, 2 = never (set by "Do not ask again") */
+  int autosave;            /* save the game when it is closed and offer to resume it next time */
+  int osd;                 /* messages over the picture (saved, slot, screenshot ...) */
   int fullscreen_toolbar;  /* the toolbar slides in at the top edge of the screen in fullscreen, like the menu bar */
 
   /* window geometry, restored on the next launch */
@@ -210,6 +219,6 @@ extern void config_add_recent(const char *path);
 
 /* Favorite games, kept by full path in genesis-plus.ini ([favorites]). */
 extern int  config_fav_has(const char *path);
-extern void config_fav_set(const char *path, int on);   /* does not save; call config_save() */
+extern int  config_fav_set(const char *path, int on);   /* 1 when it is now as asked (0: the list is full); does not save */
 
 #endif /* _CONFIG_H_ */

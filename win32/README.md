@@ -249,7 +249,7 @@ Multi-disc Mega CD games: give the `.cue` (or `.chd`) of the first disc.
 ## Using it
 
 Open a ROM with **File → Open**, drag one onto the window, pass it on the
-command line, or browse a folder with **File → ROMs Directory** (Ctrl+B). ZIP
+command line, or browse a folder with **File → ROMs Directory** (Ctrl+R). ZIP
 and GZ archives work directly. The window remembers its position, size and
 maximized state between runs.
 
@@ -275,24 +275,24 @@ still need the emulator window to be active).
 | Shortcut | Action |
 |---|---|
 | Ctrl+O | Open a ROM |
-| Ctrl+B | ROMs Directory |
+| Ctrl+R | ROMs Directory |
 | Ctrl+W | Close the ROM |
-| Ctrl+R / Ctrl+Shift+R | Reset / hard reset |
+| F4 / Ctrl+F4 | Reset / hard reset |
 | Ctrl+C | Cheats |
-| Ctrl+F | Search the game list |
-| Ctrl+D | Toggle favorite (selected game) |
+| Ctrl+F | Show / hide the search bar |
 | F2 | Pause and resume |
 | F3 | Stop the ROM |
 | F5 / F8 | Save / load the current slot |
 | F6 / F7 | Previous / next slot |
-| F9 | Undo the last state load |
+| Ctrl+F8 / Ctrl+F5 | Undo the last state load / save |
+| Ctrl+M / Ctrl+N / Ctrl+B | Mute / mute FM / mute PSG |
 | F12 | Save a screenshot |
 | Shift+F11 | Record video + audio (start / stop) |
 | Ctrl+F11 | Record audio only (start / stop) |
 | Alt+F11 | Stop recording |
 | Alt+Enter / Esc | Toggle fullscreen |
 | Tab (Hold) | Fast forward |
-| Backspace (Hold) | Rewind |
+| Backspace (Hold) | Rewind (the keys can be changed under Input > Hotkeys) |
 | `\` | Advance one frame while paused |
 
 Assigning a control works by listening rather than by picking from a list:
@@ -332,7 +332,7 @@ moved by one (`FFFE21:00C8`).
 
 ### ROM Browser
 
-**File → ROMs Directory** (Ctrl+B) scans a folder for ROMs and lists them —
+**File → ROMs Directory** (Ctrl+R) scans a folder for ROMs and lists them —
 double-click one, or select it and press **Play**, to launch it. **Change...**
 picks a different folder; **Refresh** rescans after adding files. The scan
 goes into subfolders (six levels deep, capped at 4000 files, generous for how
@@ -454,7 +454,7 @@ needed; the build commands are at the top of the file.
 
 ## Advanced Audio
 
-**Audio → Advanced...** exposes the rest of the core's sound options:
+**Audio → Advanced Audio...** exposes the rest of the core's sound options:
 
 - **Audio Filter:** Off, Low-Pass (a gentle smoothing that mimics the console's
   analog output; its strength is adjustable, 60% by default), or a 3-Band EQ
@@ -555,32 +555,36 @@ The same page is in the program under **Help → Menu Guide**.
 **File**
 
 - **Open ROM... (Ctrl+O)** – Pick a game file to play: Mega Drive / Genesis, Master System, Game Gear, SG-1000, Mega CD, or a .zip / .7z / .gz that holds one.
-- **ROMs Directory... (Ctrl+B)** – Shows the game browser for a folder of games. Double-click a game to play it, right-click for more choices (play with a saved state, cheats, cover image).
+- **ROMs Directory... (Ctrl+R)** – Shows the game browser for a folder of games. Double-click a game to play it, right-click for more choices (play with a saved state, cheats, cover image).
 - **Recent Files** – Your last games, each shown with its console.
 - **Close ROM (Ctrl+W)** – Stops the game.
-- **ROM Information...** – Details about the loaded game.
+- **ROM Information...** – The game's name, console, genre, favorite state, file size and location, the CRC32, the cartridge header (console name, type, titles, product code, region, copyright, supported controllers, save RAM), and the ROM size and checksum.
 - **Open Genesis Plus Folder** – Opens the program folder: settings, saves, states, screenshots, recordings, cheats, covers and BIOS files.
 - **Exit** – Quits.
 
 **Emulation**
 
 - **Pause (F2 / Pause), Stop (F3)** – Freeze the game, or end it.
-- **Reset (Ctrl+R), Hard Reset (Ctrl+Shift+R)** – Reset is the console's reset button. Hard Reset power-cycles the console (saved game data is kept).
-- **Save State (F5), Load State (F8)** – Save or restore the exact moment in the current slot.
-- **Save Slot** – Choose slot 0-9 (F6 / F7 = previous / next). Each entry shows when the slot was last saved.
-- **Undo Load State (F9)** – Puts the game back as it was just before the last state load (a slot key pressed by mistake, say). One level; cleared when the game is closed.
+- **Reset (F4), Hard Reset (Ctrl+F4)** – Reset is the console's reset button. Hard Reset power-cycles the console (saved game data is kept).
+- **Load State** – Load State from Selected Slot (F8) restores the exact moment saved in the selected slot. Load State from Slot loads any of the slots 0-9 directly, whichever is selected (empty slots are greyed). Undo Load State (Ctrl+F8) puts the game back as it was just before the last load; one level, cleared when the game is closed.
+- **Save State** – Save State to Selected Slot (F5) saves the exact moment into the selected slot. Save State to Slot saves into any of the slots 0-9 directly. Undo Save State puts the slot back as it was before the last save (or empties it if it was empty); one level, cleared when the game is closed.
+- **Select State Slot** – Choose slot 0-9 for F5 / F8 (F6 / F7 = previous / next). Each entry shows when the slot was last saved.
 - **Manage States...** – Thumbnails of all ten slots: left-click loads one, right-click saves or deletes.
 - **Enable Rewind (Backspace, Hold)** – Keeps a history of recent play so holding Backspace runs it backwards. Uses about 200 MB and some CPU while on; switch it off if you never rewind. Not available during netplay.
 - **Pause When Inactive** – Pauses the game while another window has focus.
+- **Auto Resume** – Saves the game when you close it (or quit) and, the next time you open that game, asks whether to carry on from there. The question has a "Do not ask again" box that remembers your answer; the Restore Dialog button next to Auto Resume in Settings brings it back. It uses a state of its own, so your ten save slots are untouched.
+- **Slow Motion** – Runs the game at half speed (the sound slows down with it). To step one frame at a time, pause and press the Advance One Frame key, \ by default.
 
 **View**
 
 - **View Mode** – List View or Grid View: how the game browser shows your games.
-- **List Columns** – Choose which columns the list view shows: Favorite (a star: click it to mark a game as a favorite), Console, Folder and Size (Name is always shown). Right-clicking the column header does the same.
+- **List Columns** – Choose which columns the list view shows: Favorite (a star: click it to mark a game as a favorite), and Console (Name is always shown), and Genre (shown after Console, hidden at first). Click a column's title to sort by it (View > Show Recently Played shows what you played last). Right-clicking the column header does the same. The choices are greyed out while the grid view is shown.
 - **Theme** – System (follow Windows), Light or Dark.
 - **Larger UI** – Bigger menus and dialogs.
-- **Show Favorites Only, Toggle Favorite (Ctrl+D, no menu item)** – Mark the selected game as a favorite (or click its star in the Favorite column; the right-click menu has Add To Favorites too). Show Favorites Only, or the star on the toolbar, hides every other game. Sorting by the Favorite column puts your favorites first.
-- **Show Toolbar, Show Search Bar, Show Filter Bar** – Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, play, stop, reset, pause, switch fullscreen, screenshot, settings, the Video and Audio settings tabs and the player controls; a star button next to Refresh shows only your favorites. The toolbar stays above the game while it runs in a window; in fullscreen it slides in at the top edge of the screen together with the menu bar (View > Toolbar in Fullscreen switches that on; it is off to start with). The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, genre (looked up from the game's title in a table built into the program; a game that is not in it is listed as Unknown) and region (read from tags such as (USA) in the file name).
+- **Show Favorites Only** – Mark a game as a favorite by clicking its star in the Favorite column (the right-click menu has Add To Favorites too). Show Favorites Only, or the star on the toolbar, hides every other game. Sorting by the Favorite column puts your favorites first.
+- **Show Toolbar, Show Search Bar (Ctrl+F), Show Filter Bar** – Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, favorites only, play, pause, stop, reset, switch fullscreen, screenshot, settings, the Video and Audio settings tabs and the player controls; a star button next to Refresh shows only your favorites. The toolbar stays above the game while it runs in a window; in fullscreen it slides in at the top edge of the screen together with the menu bar (View > Toolbar in Fullscreen switches that on; it is off to start with). The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, genre (looked up from the game's title in a table built into the program; a game that is not in it is listed as Unknown) and region (read from tags such as (USA) in the file name).
+- **Show Recently Played** – Shows the last few games you opened as a group at the top of the list, above all the others. Choose it again to switch it off.
+- **Clean Game Names** – The game list shows "Sonic The Hedgehog" instead of "Sonic The Hedgehog (USA, Europe) [!].md". Only the list changes, not the files.
 - **Reset Window Size** – Puts the window back at the size chosen under Video → Window Size.
 
 **Video**
@@ -590,7 +594,7 @@ The same page is in the program under **Help → Menu Guide**.
 - **Always on Top** – Keeps the window above every other window.
 - **Render Filter** – Pixel-art scalers and CRT looks (Scale2x, Smooth, xBRZ, Scanlines, CRT...) applied before the picture is shown.
 - **Shaders** – Runs a librashader (`.slangp`) GPU shader chain on top of the picture, Direct3D 11 only; `librashader.dll` ships with the 64-bit exe; the 32-bit exe has no Shaders menu (see [Shaders Presets](#shaders-presets-librashader) above).
-- **Visual Effects** – Smooth Scaling (soft edges when enlarged), Brighten (a gentle brightness lift), LCD Ghosting (bright pixels fade slowly, like a handheld screen).
+- **Visual Effects** – Smooth Scaling (soft edges when enlarged), Integer Scaling (enlarges the picture by whole multiples only, 1x, 2x, 3x ..., so every pixel is the same size; it is centered, with borders, when the window is between two sizes, and follows the Aspect Ratio setting for the shape of the pixels), Brighten (a gentle brightness lift), LCD Ghosting (bright pixels fade slowly, like a handheld screen).
 - **Scanlines** – Dark lines between rows: Off, 25, 50, 75 or 100 %.
 - **NTSC Filter** – Composite, S-Video or RGB television look.
 - **Aspect Ratio** – Square Pixels, 4:3 (as on a CRT) or Fill the Window.
@@ -602,16 +606,18 @@ The same page is in the program under **Help → Menu Guide**.
 
 **Audio**
 
-- **Mute** – Silences the sound; untick to hear it again.
+- **Mute FM Sound (Ctrl+N), Mute PSG Sound (Ctrl+B)** – Silence the FM chip (the main music) or the PSG chip (the square-wave sound) on its own, without touching the saved levels.
+- **Mute (Ctrl+M)** – Silences the sound; untick to hear it again.
 - **Levels and Latency...** – Master volume, FM and PSG levels, CD audio, and how many frames of sound are buffered.
-- **Advanced...** – Audio filter (Off, Low-Pass or a 3-Band EQ) and its settings, High-Quality FM, Master System FM unit and chip, and Sega CD PCM volume.
+- **Advanced Audio...** – Audio filter (Off, Low-Pass or a 3-Band EQ) and its settings, High-Quality FM, Master System FM unit and chip, and Sega CD PCM volume.
 - **FM Chip** – Which Genesis FM sound chip is emulated: YM2612 or YM3438, the exact Nuked versions (default is YM2612 Nuked) or MAME.
 - **Sample Rate** – 44100 or 48000 Hz.
 - **High-Quality PSG Resampling, Low-Pass Filter, Mono Output** – Cleaner PSG sound, a soft high-frequency roll-off, and mono instead of stereo.
 
 **Input**
 
-- **Controls...** – One window with a tab for Player 1 and one for Player 2, laid out around a picture of the pad. Click a button, then press the key or gamepad button you want (right-click a button to clear it; clicking its spot on the picture works too). Auto Assign goes through them all in turn. Pressing a mapped key or gamepad button lights its spot on the picture, so you can check a pad. Set keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.
+- **Hotkeys...** – Every keyboard shortcut in one list: select an action, click Assign (or double-click it) and press the key you want, alone or with Ctrl, Shift or Alt. A key can only be on one action: the old one loses it. Clear removes a shortcut and Restore Defaults brings the original keys back. The menu labels and the Keyboard Shortcuts window follow your choices. Fast Forward and Rewind (the keys you hold, Tab and Backspace by default) are in the list too; their gamepad buttons are under Controls > Gamepad Hotkeys.
+- **Controls...** – One window with a tab for Player 1 and one for Player 2, laid out around a picture of the pad. Click a button, then press the key or gamepad button you want (right-click a button to clear it; clicking its spot on the picture works too). Right-click A, B, C, X, Y or Z to turn Turbo on for it: held down, it then fires repeatedly. A key or button can only be on one pad button: assigning it takes it off the one that had it (also on the other player, for keys), and a line under the pad says what was removed, and when the key is also a shortcut or the pad button also a gamepad hotkey. Auto Assign goes through them all in turn. Pressing a mapped key or gamepad button lights its spot on the picture, so you can check a pad; tick Test Keys to try keys such as Enter, Tab and Esc without them operating the window. Set keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). The right stick counts as four more buttons (Right Stick Up, Down, Left, Right) that can be assigned like any other; this works for XInput pads and, where the pad reports the stick on its Rx / Ry or Z / Rz axes, for DirectInput ones. Gamepad Hotkeys... opens a window to choose which pad button runs each shortcut, pressed on its own (no Back needed): Fast Forward and Rewind (held), Slow Motion, Save State and Load State (current slot), and Previous and Next Slot. By default the right stick does the last four (up = save, down = load, left = previous slot, right = next slot) and LB / LT are Fast Forward / Rewind. A button used there also reaches the game, so the right stick is a good choice. Xbox-style (XInput) pad of Player 1 only. Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.
 - **Port A / Port B Device** – What is plugged in: Control Pad, Mouse, a light gun (Light Phaser, Menacer or Justifier, depending on the port), XE-1AP analog joystick, Activator, Paddle Control, Sports Pad, Graphic Board (Pico's drawing tablet), or a 4-player Team Player adapter — not every device is on both ports.
 - **Enable Background Input** – Keep reading the controller while another window has focus.
 
@@ -634,6 +640,7 @@ The same page is in the program under **Help → Menu Guide**.
 - **Emulate Address Error Exceptions** – Hardware-accurate crashes on bad memory access; turn off only for a few hacked games.
 - **Show Extended Game Gear Screen** – Show the whole Game Gear picture instead of only the part its screen displayed.
 - **Show Master System Side Borders** – Off by default, which crops the 8-pixel columns at each side; tick to show them.
+- **Show On-Screen Messages** – Short messages over the picture, such as "Saved to slot 3" or the name of a screenshot. Untick to hide them (the status bar still shows them).
 - **Show Frame Rate** – Frames per second on screen.
 
 **Help**

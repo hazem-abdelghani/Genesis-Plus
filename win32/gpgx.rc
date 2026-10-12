@@ -26,7 +26,7 @@ BEGIN
   POPUP "&File"
   BEGIN
     MENUITEM "&Open ROM...\tCtrl+O",            IDM_FILE_OPEN
-    MENUITEM "ROMs &Directory...\tCtrl+B",        IDM_FILE_BROWSER
+    MENUITEM "ROMs &Directory...\tCtrl+R",        IDM_FILE_BROWSER
     POPUP "&Recent Files"
     BEGIN
       MENUITEM "(Empty)",                       IDM_FILE_RECENT_BASE, GRAYED
@@ -42,30 +42,65 @@ BEGIN
   POPUP "&Emulation"
   BEGIN
     MENUITEM "&Pause\tF2 / Pause",              IDM_EMU_PAUSE
-    MENUITEM "&Stop\tF3",                       IDM_EMU_STOP
-    MENUITEM "&Reset\tCtrl+R",                  IDM_EMU_RESET
-    MENUITEM "&Hard Reset\tCtrl+Shift+R",       IDM_EMU_HARDRESET
+    MENUITEM "S&top\tF3",                       IDM_EMU_STOP
+    MENUITEM "&Reset\tF4",                  IDM_EMU_RESET
+    MENUITEM "&Hard Reset\tCtrl+F4",       IDM_EMU_HARDRESET
     MENUITEM SEPARATOR
-    MENUITEM "Sa&ve State\tF5",                IDM_FILE_SAVESTATE
-    MENUITEM "&Load State\tF8",                 IDM_FILE_LOADSTATE
-    MENUITEM "&Undo Load State\tF9",             IDM_EMU_UNDOLOAD
-    POPUP "Save Slo&t"
+    POPUP "&Load State"
     BEGIN
-      MENUITEM "Slot &0",                       IDM_FILE_SLOT_BASE + 0
-      MENUITEM "Slot &1",                       IDM_FILE_SLOT_BASE + 1
-      MENUITEM "Slot &2",                       IDM_FILE_SLOT_BASE + 2
-      MENUITEM "Slot &3",                       IDM_FILE_SLOT_BASE + 3
-      MENUITEM "Slot &4",                       IDM_FILE_SLOT_BASE + 4
-      MENUITEM "Slot &5",                       IDM_FILE_SLOT_BASE + 5
-      MENUITEM "Slot &6",                       IDM_FILE_SLOT_BASE + 6
-      MENUITEM "Slot &7",                       IDM_FILE_SLOT_BASE + 7
-      MENUITEM "Slot &8",                       IDM_FILE_SLOT_BASE + 8
-      MENUITEM "Slot &9",                       IDM_FILE_SLOT_BASE + 9
+      MENUITEM "Load State from &Selected Slot\tF8", IDM_FILE_LOADSTATE
+      POPUP "Load State from S&lot"
+      BEGIN
+        MENUITEM "Slot &0",                 IDM_FILE_LOADSLOT_BASE + 0
+        MENUITEM "Slot &1",                 IDM_FILE_LOADSLOT_BASE + 1
+        MENUITEM "Slot &2",                 IDM_FILE_LOADSLOT_BASE + 2
+        MENUITEM "Slot &3",                 IDM_FILE_LOADSLOT_BASE + 3
+        MENUITEM "Slot &4",                 IDM_FILE_LOADSLOT_BASE + 4
+        MENUITEM "Slot &5",                 IDM_FILE_LOADSLOT_BASE + 5
+        MENUITEM "Slot &6",                 IDM_FILE_LOADSLOT_BASE + 6
+        MENUITEM "Slot &7",                 IDM_FILE_LOADSLOT_BASE + 7
+        MENUITEM "Slot &8",                 IDM_FILE_LOADSLOT_BASE + 8
+        MENUITEM "Slot &9",                 IDM_FILE_LOADSLOT_BASE + 9
+      END
+      MENUITEM "&Undo Load State\tCtrl+F8",           IDM_EMU_UNDOLOAD
+    END
+    POPUP "&Save State"
+    BEGIN
+      MENUITEM "Save State to &Selected Slot\tF5", IDM_FILE_SAVESTATE
+      POPUP "Save State to S&lot"
+      BEGIN
+        MENUITEM "Slot &0",                 IDM_FILE_SAVESLOT_BASE + 0
+        MENUITEM "Slot &1",                 IDM_FILE_SAVESLOT_BASE + 1
+        MENUITEM "Slot &2",                 IDM_FILE_SAVESLOT_BASE + 2
+        MENUITEM "Slot &3",                 IDM_FILE_SAVESLOT_BASE + 3
+        MENUITEM "Slot &4",                 IDM_FILE_SAVESLOT_BASE + 4
+        MENUITEM "Slot &5",                 IDM_FILE_SAVESLOT_BASE + 5
+        MENUITEM "Slot &6",                 IDM_FILE_SAVESLOT_BASE + 6
+        MENUITEM "Slot &7",                 IDM_FILE_SAVESLOT_BASE + 7
+        MENUITEM "Slot &8",                 IDM_FILE_SAVESLOT_BASE + 8
+        MENUITEM "Slot &9",                 IDM_FILE_SAVESLOT_BASE + 9
+      END
+      MENUITEM "&Undo Save State\tCtrl+F5",               IDM_EMU_UNDOSAVE
+    END
+    POPUP "Select State Sl&ot"
+    BEGIN
+      MENUITEM "Slot &0",                 IDM_FILE_SLOT_BASE + 0
+      MENUITEM "Slot &1",                 IDM_FILE_SLOT_BASE + 1
+      MENUITEM "Slot &2",                 IDM_FILE_SLOT_BASE + 2
+      MENUITEM "Slot &3",                 IDM_FILE_SLOT_BASE + 3
+      MENUITEM "Slot &4",                 IDM_FILE_SLOT_BASE + 4
+      MENUITEM "Slot &5",                 IDM_FILE_SLOT_BASE + 5
+      MENUITEM "Slot &6",                 IDM_FILE_SLOT_BASE + 6
+      MENUITEM "Slot &7",                 IDM_FILE_SLOT_BASE + 7
+      MENUITEM "Slot &8",                 IDM_FILE_SLOT_BASE + 8
+      MENUITEM "Slot &9",                 IDM_FILE_SLOT_BASE + 9
     END
     MENUITEM "&Manage States...",                IDM_FILE_STATEMGR
     MENUITEM SEPARATOR
     MENUITEM "&Enable Rewind",                  IDM_EMU_REWIND
     MENUITEM "Pause When &Inactive",            IDM_EMU_PAUSE_UNFOCUSED
+    MENUITEM "A&uto Resume",      IDM_EMU_AUTOSAVE
+    MENUITEM "Slo&w Motion",                    IDM_EMU_SLOWMO
   END
 
   POPUP "&View"
@@ -80,8 +115,7 @@ BEGIN
       MENUITEM "&Favorite",                     IDM_VIEW_COL_FAV
       MENUITEM "&Name",                         IDM_VIEW_COL_BASE + 0
       MENUITEM "&Console",                      IDM_VIEW_COL_BASE + 1
-      MENUITEM "&Folder",                       IDM_VIEW_COL_BASE + 2
-      MENUITEM "&Size",                         IDM_VIEW_COL_BASE + 3
+      MENUITEM "&Genre",                        IDM_VIEW_COL_EXTRA + 0
     END
     MENUITEM SEPARATOR
     POPUP "&Theme"
@@ -92,14 +126,16 @@ BEGIN
     END
     MENUITEM "&Larger UI",                       IDM_VIDEO_LARGE_UI
     MENUITEM SEPARATOR
-    MENUITEM "Show &Toolbar",                   IDM_VIEW_TOOLBAR
+    MENUITEM "Show To&olbar",                   IDM_VIEW_TOOLBAR
     MENUITEM "Toolbar in Full&screen",          IDM_VIEW_FSTOOLBAR
     MENUITEM "Show S&earch Bar",         IDM_VIEW_SEARCHBAR
     MENUITEM "Show F&ilter Bar",                IDM_VIEW_FILTERBAR
     MENUITEM SEPARATOR
     MENUITEM "Show &Favorites Only",             IDM_VIEW_FAVONLY
+    MENUITEM "Show &Recently Played",          IDM_VIEW_SORT_RECENT
+    MENUITEM "Clean Game &Names", IDM_VIEW_CLEANNAMES
     MENUITEM SEPARATOR
-    MENUITEM "&Reset Window Size",              IDM_VIEW_RESETWINDOW
+    MENUITEM "Reset &Window Size",              IDM_VIEW_RESETWINDOW
   END
 
   POPUP "&Video"
@@ -117,12 +153,12 @@ BEGIN
     MENUITEM "Start ROM in F&ullscreen",        IDM_VIDEO_FULLSCREEN_START
     MENUITEM "Always on &Top",                  IDM_VIDEO_ALWAYS_ON_TOP
     MENUITEM SEPARATOR
-    POPUP "Render &Filter"
+    POPUP "Render Fi&lter"
     BEGIN
       MENUITEM "None",                          IDM_VIDEO_FILTER_NONE
     END
 #ifdef _WIN64   /* librashader has no 32-bit build */
-    POPUP "&Shaders"
+    POPUP "Sha&ders"
     BEGIN
       MENUITEM "None",                          IDM_VIDEO_SHADER_NONE
       MENUITEM "Preset...",                     IDM_VIDEO_SHADER_PRESET
@@ -131,6 +167,7 @@ BEGIN
     POPUP "Visual &Effects"
     BEGIN
       MENUITEM "&Smooth Scaling",               IDM_VIDEO_SMOOTH
+      MENUITEM "&Integer Scaling",              IDM_VIDEO_INTSCALE
       MENUITEM "&Brighten",                     IDM_VIDEO_BRIGHTEN
       POPUP "LCD &Ghosting"
       BEGIN
@@ -155,7 +192,7 @@ BEGIN
       MENUITEM "S-Video",                       IDM_VIDEO_NTSC_BASE + 2
       MENUITEM "RGB",                           IDM_VIDEO_NTSC_BASE + 3
     END
-    POPUP "&Aspect Ratio"
+    POPUP "As&pect Ratio"
     BEGIN
       MENUITEM "Square Pixels",                 IDM_VIDEO_ASPECT_BASE + 0
       MENUITEM "4:3 (As Displayed on a CRT)",   IDM_VIDEO_ASPECT_BASE + 1
@@ -195,8 +232,10 @@ BEGIN
   POPUP "&Audio"
   BEGIN
     MENUITEM "&Mute",                           IDM_AUDIO_ENABLE
+    MENUITEM "Mute FM So&und",                  IDM_AUDIO_MUTE_FM
+    MENUITEM "Mute PS&G Sound",                 IDM_AUDIO_MUTE_PSG
     MENUITEM "&Levels and Latency...",          IDM_AUDIO_SETTINGS
-    MENUITEM "&Advanced...",                    IDM_AUDIO_ADVANCED
+    MENUITEM "Advanced &Audio...",                    IDM_AUDIO_ADVANCED
     MENUITEM SEPARATOR
     POPUP "&FM Chip"
     BEGIN
@@ -213,13 +252,14 @@ BEGIN
     END
     MENUITEM SEPARATOR
     MENUITEM "High-Quality &PSG Resampling",    IDM_AUDIO_HQPSG
-    MENUITEM "&Low-Pass Filter",                IDM_AUDIO_LOWPASS
-    MENUITEM "&Mono Output",                    IDM_AUDIO_MONO
+    MENUITEM "L&ow-Pass Filter",                IDM_AUDIO_LOWPASS
+    MENUITEM "Mo&no Output",                    IDM_AUDIO_MONO
   END
 
   POPUP "&Input"
   BEGIN
     MENUITEM "&Controls...",                    IDM_INPUT_P1
+    MENUITEM "&Hotkeys...",                     IDM_INPUT_HOTKEYS
     MENUITEM SEPARATOR
     POPUP "Port &A Device"
     BEGIN
@@ -317,8 +357,9 @@ BEGIN
     MENUITEM "Emulate &Address Error Exceptions", IDM_EMU_ADDRERROR
     MENUITEM SEPARATOR
     MENUITEM "Show E&xtended Game Gear Screen", IDM_VIDEO_GGEXTRA
-    MENUITEM "Show Master &System Side Borders", IDM_VIDEO_SMSBORDER
+    MENUITEM "Show Master System Side Bor&ders", IDM_VIDEO_SMSBORDER
     MENUITEM "Show Frame &Rate",                IDM_VIDEO_SHOWFPS
+    MENUITEM "Show On-Screen &Messages",        IDM_OPTIONS_OSD
   END
 
   POPUP "&Help"
@@ -345,7 +386,6 @@ BEGIN
   "R",          IDM_EMU_HARDRESET,          VIRTKEY, CONTROL, SHIFT
   "C",          IDM_EMU_CHEATS,             VIRTKEY, CONTROL
   "F",          IDM_VIEW_FINDSEARCH,        VIRTKEY, CONTROL
-  "D",          IDM_VIEW_TOGGLEFAV,         VIRTKEY, CONTROL
   VK_F9,        IDM_EMU_UNDOLOAD,           VIRTKEY
   VK_F1,        IDM_HELP_SHORTCUTS,         VIRTKEY
   VK_F2,        IDM_EMU_PAUSE,              VIRTKEY
@@ -566,15 +606,15 @@ BEGIN
   DEFPUSHBUTTON   "Close", IDOK, 384, 278, 48, 16
 END
 
-IDD_ROMINFO DIALOGEX 0, 0, 240, 190
+IDD_ROMINFO DIALOGEX 0, 0, 280, 270
 STYLE DS_MODALFRAME | DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "ROM Information"
 FONT 8, "MS Shell Dlg"
 BEGIN
-  EDITTEXT        IDC_ROMINFO_TEXT, 8, 8, 224, 154,
+  EDITTEXT        IDC_ROMINFO_TEXT, 8, 8, 264, 234,
                   ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL |
                   WS_VSCROLL | NOT WS_TABSTOP
-  DEFPUSHBUTTON   "Close", IDOK, 184, 168, 48, 16
+  DEFPUSHBUTTON   "Close", IDOK, 224, 248, 48, 16
 END
 
 IDD_CHEATS DIALOGEX 0, 0, 450, 238
@@ -790,15 +830,15 @@ BEGIN
   DEFPUSHBUTTON   "Close", IDOK, 464, 278, 48, 16
 END
 
-IDD_ROMINFO_LARGE DIALOGEX 0, 0, 240, 190
+IDD_ROMINFO_LARGE DIALOGEX 0, 0, 280, 270
 STYLE DS_MODALFRAME | DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "ROM Information"
 FONT 12, "MS Shell Dlg"
 BEGIN
-  EDITTEXT        IDC_ROMINFO_TEXT, 8, 8, 224, 154,
+  EDITTEXT        IDC_ROMINFO_TEXT, 8, 8, 264, 234,
                   ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL |
                   WS_VSCROLL | NOT WS_TABSTOP
-  DEFPUSHBUTTON   "Close", IDOK, 184, 168, 48, 16
+  DEFPUSHBUTTON   "Close", IDOK, 224, 248, 48, 16
 END
 
 IDD_CHEATS_LARGE DIALOGEX 0, 0, 450, 238
@@ -855,4 +895,61 @@ BEGIN
   BEGIN
     VALUE "Translation", 0x409, 1252
   END
+END
+
+IDD_HOTKEYS DIALOGEX 0, 0, 300, 214
+STYLE DS_MODALFRAME | DS_SETFONT | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Hotkeys"
+FONT 8, "MS Shell Dlg"
+BEGIN
+  CONTROL         "", IDC_HK_LIST, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP | WS_VSCROLL, 8, 8, 284, 150
+  LTEXT           "", IDC_HK_HINT, 8, 164, 284, 18
+  PUSHBUTTON      "Assign...", IDC_HK_ASSIGN, 8, 192, 52, 16
+  PUSHBUTTON      "Clear", IDC_HK_CLEAR, 64, 192, 44, 16
+  PUSHBUTTON      "Restore Defaults", IDC_HK_DEFAULTS, 112, 192, 72, 16
+  DEFPUSHBUTTON   "Save", IDOK, 196, 192, 44, 16
+  PUSHBUTTON      "Cancel", IDCANCEL, 244, 192, 48, 16
+END
+
+
+IDD_HOTKEYS_LARGE DIALOGEX 0, 0, 300, 214
+STYLE DS_MODALFRAME | DS_SETFONT | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Hotkeys"
+FONT 12, "MS Shell Dlg"
+BEGIN
+  CONTROL         "", IDC_HK_LIST, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP | WS_VSCROLL, 8, 8, 284, 150
+  LTEXT           "", IDC_HK_HINT, 8, 164, 284, 18
+  PUSHBUTTON      "Assign...", IDC_HK_ASSIGN, 8, 192, 52, 16
+  PUSHBUTTON      "Clear", IDC_HK_CLEAR, 64, 192, 44, 16
+  PUSHBUTTON      "Restore Defaults", IDC_HK_DEFAULTS, 112, 192, 72, 16
+  DEFPUSHBUTTON   "Save", IDOK, 196, 192, 44, 16
+  PUSHBUTTON      "Cancel", IDCANCEL, 244, 192, 48, 16
+END
+
+IDD_PADHK DIALOGEX 0, 0, 300, 200
+STYLE DS_MODALFRAME | DS_SETFONT | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Gamepad Hotkeys"
+FONT 8, "MS Shell Dlg"
+BEGIN
+  CONTROL         "", IDC_PH_LIST, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP | WS_VSCROLL, 8, 8, 284, 134
+  LTEXT           "", IDC_PH_HINT, 8, 148, 284, 22
+  PUSHBUTTON      "Assign...", IDC_PH_ASSIGN, 8, 178, 52, 16
+  PUSHBUTTON      "Clear", IDC_PH_CLEAR, 64, 178, 44, 16
+  PUSHBUTTON      "Restore Defaults", IDC_PH_DEFAULTS, 112, 178, 72, 16
+  DEFPUSHBUTTON   "Save", IDOK, 196, 178, 44, 16
+  PUSHBUTTON      "Cancel", IDCANCEL, 244, 178, 48, 16
+END
+
+IDD_PADHK_LARGE DIALOGEX 0, 0, 300, 200
+STYLE DS_MODALFRAME | DS_SETFONT | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Gamepad Hotkeys"
+FONT 12, "MS Shell Dlg"
+BEGIN
+  CONTROL         "", IDC_PH_LIST, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP | WS_VSCROLL, 8, 8, 284, 134
+  LTEXT           "", IDC_PH_HINT, 8, 148, 284, 22
+  PUSHBUTTON      "Assign...", IDC_PH_ASSIGN, 8, 178, 52, 16
+  PUSHBUTTON      "Clear", IDC_PH_CLEAR, 64, 178, 44, 16
+  PUSHBUTTON      "Restore Defaults", IDC_PH_DEFAULTS, 112, 178, 72, 16
+  DEFPUSHBUTTON   "Save", IDOK, 196, 178, 44, 16
+  PUSHBUTTON      "Cancel", IDCANCEL, 244, 178, 48, 16
 END

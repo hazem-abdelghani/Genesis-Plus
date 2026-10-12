@@ -554,11 +554,6 @@ void rewind_capture_tick(const int16 *audio_samples, int audio_frames)
   ring_push_do();
 }
 
-int rewind_available(void)
-{
-  return ring_ok ? (int)ring_entries : 0;
-}
-
 /* Pops and loads the most recent snapshot. Returns 0 with nothing changed
    once the buffer runs dry, so the caller can tell the person they've hit
    the end of what's kept rather than silently freezing on the same frame.

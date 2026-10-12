@@ -48,6 +48,8 @@ extern void emu_save_state(int slot);
 extern void emu_load_state(int slot);
 extern void emu_undo_load_state(void);   /* back to the game as it was before the last load */
 extern int  emu_can_undo_load(void);
+extern void emu_undo_save_state(void);   /* put the slot back as it was before the last save */
+extern int  emu_can_undo_save(void);
 extern void gui_snprintf(char *out, int out_len, const char *fmt, ...);   /* never overruns out */
 extern void emu_apply_region(void);
 
@@ -171,6 +173,7 @@ extern int  gui_input_resolve_device(int device, const char *joy_name, int avoid
 
 extern int  input_capture_key(void);
 extern int  input_capture_gamepad(int device);
+extern int  gui_input_pad_hotkey(void);                  /* Back + button: the menu command, or 0 */
 extern int  input_pad_button_down(int device, int mask);   /* is that assigned button held right now */
 extern int  input_any_input_down(int device);
 
@@ -194,14 +197,10 @@ extern void cheats_remove(int index);
 extern void cheats_remove_all(void);
 extern void cheats_set_enabled(int index, int on);
 
-extern int  cheats_count(void);
 extern int  cheats_active(void);
 extern int  cheats_effective(void);        /* 0 while Enable Cheats is off */
 extern void cheats_set_all_enabled(int on);
-extern int  cheats_is_enabled(int index);
 extern int  cheats_is_valid(int index);
-extern const char *cheats_get_code(int index);
-extern const char *cheats_get_desc(int index);
 
 extern void cheats_load_for_rom(const char *rom_base);
 extern void cheats_save_for_rom(const char *rom_base);
@@ -218,6 +217,8 @@ extern void dlg_cheats(HWND parent);
 extern void browser_panel_create(HWND parent);
 extern void browser_panel_show(int show);
 extern int  browser_panel_visible(void);
+extern int  browser_has_selection(void);
+extern void browser_show_rom_info(void);   /* File > ROM Information on the game picked in the list */
 extern void browser_panel_layout(const RECT *area);
 extern void browser_grid_zoom(int delta);
 extern void browser_relayout(void);   /* implemented in main.c */
@@ -238,7 +239,9 @@ extern void browser_toolbar_update(void);      /* pressed look of the toolbar's 
 extern int  browser_column_hidden(int col);
 extern void browser_fullscreen_toolbar(int show);    /* fullscreen: the toolbar over the picture while the mouse is at the top */
 extern int  browser_fullscreen_toolbar_shown_height(void);
-extern void browser_toggle_favorite(void);          /* Ctrl+D: the selected game */
+extern void browser_toggle_recent(void);           /* View > Recently Played at the Top */
+extern void browser_refresh_names(void);
+extern void browser_genre_for(const char *path, char *out, int out_len);
 extern void browser_toggle_favorites_only(void);    /* the toolbar star / View > Show Favorites Only */
 extern int  browser_favorites_only(void);
 extern LRESULT browser_list_customdraw(NMHDR *hdr); /* -1 when it is not the game list */
@@ -251,7 +254,6 @@ extern void browser_toggle_column(int col);
 extern void rewind_init(void);
 extern void rewind_reset(void);
 extern void rewind_capture_tick(const int16 *audio_samples, int audio_frames);
-extern int  rewind_available(void);
 extern void rewind_enable(int on);   /* allocates / frees the history (about 200 MB) */
 extern int  rewind_ready(void);      /* the history exists (enable succeeded) */
 extern int  rewind_step(void);
@@ -293,6 +295,44 @@ extern void dlg_menu_guide(HWND parent);
 extern HMENU gui_main_menu(void);
 extern int  gui_shader_available(void);          /* librashader + Direct3D 11 present (says what is missing) */
 extern int  gui_set_shader(const char *path);    /* a .slangp preset, or NULL / "" for none */
+/* Tooltips for a dialog: a tip on a control by id and/or on the plain text label (a static with that
+   text) beside it; they show after a short delay and hide after 30 seconds. */
+typedef struct { int id; const char *label; const char *tip; } GuiTip;
+extern void gui_dialog_tips(HWND dlg, const GuiTip *defs, int n);
+
+/* history.c: when each game was last played, how often and for how long */
+extern void history_load(void);
+extern void history_save(void);
+extern void history_game_started(const char *path);
+extern void history_game_ended(void);
+extern unsigned long long history_last(const char *path);   /* when the game was last opened (Unix time), 0 = never */
+
+/* hotkeys.c: the keyboard shortcuts */
+extern int  hotkeys_count(void);
+extern const char *hotkey_owner_of_key(int vk);          /* the shortcut that is this plain key, or NULL */
+extern const char *padhk_owner_of_button(int mask);     /* the gamepad hotkey on this pad button, or NULL */
+extern int  hotkey_hold_vk(int cmd);   /* the key held for Fast Forward / Rewind */
+#define HK_FASTFWD 2598
+#define HK_REWIND  2597
+#define PADHK_FASTFWD 0       /* gui.padhk[]: the first two are held buttons */
+#define PADHK_REWIND  1
+extern int  padhk_is_hold(int i);
+extern void padhk_ini_key(int i, char *out);
+extern int  padhk_count(void);          /* gamepad hotkeys (hold Back + a button) */
+extern int  padhk_cmd(int i);
+extern int  padhk_default(int i);
+extern void dlg_pad_hotkeys(HWND parent);   /* Controls > Gamepad Hotkeys... */
+extern const char *hotkey_name(int i);
+extern int  hotkey_default(int i);
+extern void hotkey_ini_key(int i, char *out, int len);
+extern void hotkey_text(int code, char *out, int len);         /* "Ctrl+Shift+R" */
+extern int  hotkey_frame_advance_vk(void);
+extern HACCEL hotkeys_build_accel(void);
+extern void hotkeys_apply_menu(void);                          /* menu labels follow the shortcuts */
+extern void hotkeys_describe(char *out, int len);               /* "Action<TAB>Shortcut" lines */
+extern void dlg_hotkeys(HWND parent);
+extern void gui_hotkeys_changed(void);                          /* main.c: rebuild the table and the menu labels */
+
 extern void dlg_settings(HWND parent);   /* settings.c */
 extern void dlg_settings_tab(HWND parent, int tab);   /* the same, opened on tab 0 General, 1 Video, 2 Audio ... */
 extern void settings_register_classes(void);

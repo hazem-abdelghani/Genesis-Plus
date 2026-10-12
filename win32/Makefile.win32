@@ -229,6 +229,8 @@ OBJECTS  += $(OBJDIR)/main.o \
             $(OBJDIR)/dialogs.o \
             $(OBJDIR)/browser.o \
             $(OBJDIR)/toolbar.o \
+            $(OBJDIR)/history.o \
+            $(OBJDIR)/hotkeys.o \
             $(OBJDIR)/settings.o \
             $(OBJDIR)/coverart.o \
             $(OBJDIR)/rewind.o \
@@ -359,6 +361,10 @@ $(OBJDIR)/browser.o: $(GUIDIR)/browser.c
 $(OBJDIR)/toolbar.o: $(GUIDIR)/toolbar.c $(GUIDIR)/toolbar.h
 	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@
 $(OBJDIR)/settings.o: $(GUIDIR)/settings.c $(GUIDIR)/toolbar.h
+	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@
+$(OBJDIR)/history.o: $(GUIDIR)/history.c $(GUIDIR)/gui.h
+	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@
+$(OBJDIR)/hotkeys.o: $(GUIDIR)/hotkeys.c $(GUIDIR)/gui.h $(GUIDIR)/toolbar.h
 	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@
 $(OBJDIR)/coverart.o: $(GUIDIR)/coverart.c
 	$(CC) -c $(CFLAGS) $(INCLUDES) $(DEFINES) $< -o $@

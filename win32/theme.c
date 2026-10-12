@@ -406,6 +406,63 @@ static BOOL CALLBACK apply_to_child(HWND hwnd, LPARAM lparam)
   return TRUE;
 }
 
+/* A checkbox or radio button is only as wide as its box and its words, so clicking in the empty
+   space beside it does not toggle it. Only ever narrows a control. */
+static BOOL CALLBACK fit_check_width(HWND c, LPARAM lp)
+{
+  char cls[16], text[256];
+  LONG style;
+  RECT rc, tr;
+  HDC dc;
+  HGDIOBJ of;
+  HFONT font;
+  HWND parent;
+  int type, w;
+
+  (void)lp;
+  if (!GetClassNameA(c, cls, sizeof(cls)) || lstrcmpiA(cls, "Button")) return TRUE;
+  style = GetWindowLong(c, GWL_STYLE);
+  type = style & BS_TYPEMASK;
+  if (type != BS_CHECKBOX && type != BS_AUTOCHECKBOX && type != BS_RADIOBUTTON && type != BS_AUTORADIOBUTTON &&
+      type != BS_3STATE && type != BS_AUTO3STATE) return TRUE;
+  if (style & (BS_PUSHLIKE | BS_MULTILINE | BS_LEFTTEXT | BS_BITMAP | BS_ICON)) return TRUE;
+  if (!GetWindowTextA(c, text, sizeof(text)) || !text[0]) return TRUE;
+
+  font = (HFONT)SendMessage(c, WM_GETFONT, 0, 0);
+  dc = GetDC(c);
+  if (!dc) return TRUE;
+  of = SelectObject(dc, font ? font : GetStockObject(DEFAULT_GUI_FONT));
+  SetRectEmpty(&tr);
+  DrawTextA(dc, text, -1, &tr, DT_CALCRECT | DT_SINGLELINE | DT_LEFT);
+  SelectObject(dc, of);
+  ReleaseDC(c, dc);
+
+  {
+    typedef UINT (WINAPI *GetDpiForWindow_t)(HWND);
+    typedef int  (WINAPI *GetSystemMetricsForDpi_t)(int, UINT);
+    static GetDpiForWindow_t get_dpi;
+    static GetSystemMetricsForDpi_t metrics_dpi;
+    static int resolved;
+    int glyph = GetSystemMetrics(SM_CXMENUCHECK);
+
+    if (!resolved)
+    {
+      HMODULE u = GetModuleHandleA("user32.dll");
+      get_dpi = (GetDpiForWindow_t)GetProcAddress(u, "GetDpiForWindow");
+      metrics_dpi = (GetSystemMetricsForDpi_t)GetProcAddress(u, "GetSystemMetricsForDpi");
+      resolved = 1;
+    }
+    if (get_dpi && metrics_dpi) glyph = metrics_dpi(SM_CXMENUCHECK, get_dpi(c));   /* this window's monitor, not the system's */
+    w = (tr.right - tr.left) + glyph + 10;
+  }
+  GetWindowRect(c, &rc);
+  if (w >= rc.right - rc.left) return TRUE;
+  parent = GetParent(c);
+  MapWindowPoints(NULL, parent, (POINT *)&rc, 2);
+  SetWindowPos(c, NULL, rc.left, rc.top, w, rc.bottom - rc.top, SWP_NOZORDER | SWP_NOACTIVATE);
+  return TRUE;
+}
+
 void theme_apply_to_window(HWND hwnd)
 {
   int dark = theme_is_dark();
@@ -426,6 +483,7 @@ void theme_apply_to_window(HWND hwnd)
   DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_bool, sizeof(dark_bool));
   DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_PRE20H1, &dark_bool, sizeof(dark_bool));
 
+  EnumChildWindows(hwnd, fit_check_width, 0);
   EnumChildWindows(hwnd, apply_to_child, (LPARAM)dark);
 
   /* Popup menus cache their own theme state; without this, a menu

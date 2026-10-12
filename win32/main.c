@@ -281,7 +281,7 @@ void gui_notify(const char *fmt, ...)
   va_end(ap);
   lstrcpynA(buf, full, sizeof(buf));   /* long names are cut, never overrun */
 
-  video_show_notice(buf, 1800);
+  if (gui.osd) video_show_notice(buf, 1800);
   gui_status("%s", buf);
 }
 
@@ -451,9 +451,12 @@ static void clear_menu(HMENU menu)
 static void rebuild_recent_menu(void)
 {
   HMENU file_menu = GetSubMenu(g_menu, 0);
-  /* Position 2: Open ROM (0), ROM Browser (1), Open Recent (2). */
-  HMENU recent = GetSubMenu(file_menu, 2);
+  /* The File menu's only submenu is Recent Files; found by that, not by a position that moves. */
+  HMENU recent = NULL;
   int i, added = 0;
+
+  for (i = 0; file_menu && i < GetMenuItemCount(file_menu) && !recent; i++)
+    recent = GetSubMenu(file_menu, i);
 
   if (!recent) return;
 
@@ -634,25 +637,34 @@ static int port_menu_value(int port, int index)
    than by position or by which top-level menu it lives in, so moving it
    between menus (it used to be under File, now Emulation) doesn't break
    this. */
-static HMENU find_slot_menu(void)
+/* Which of the three slot lists (Select / Load from / Save to) this menu is: the command it starts with, or 0. */
+static int slot_menu_base(HMENU m)
 {
-  int t, top_count = GetMenuItemCount(g_menu);
+  UINT first;
+  if (!m || GetMenuItemCount(m) < 1) return 0;
+  first = GetMenuItemID(m, 0);
+  if (first == (UINT)IDM_FILE_SLOT_BASE || first == (UINT)IDM_FILE_LOADSLOT_BASE || first == (UINT)IDM_FILE_SAVESLOT_BASE) return (int)first;
+  return 0;
+}
 
-  for (t = 0; t < top_count; t++)
+static HMENU find_slot_menu_in(HMENU menu, int base)
+{
+  int i, count = GetMenuItemCount(menu);
+
+  for (i = 0; i < count; i++)
   {
-    HMENU top = GetSubMenu(g_menu, t);
-    int i, count;
-
-    if (!top) continue;
-    count = GetMenuItemCount(top);
-
-    for (i = 0; i < count; i++)
-    {
-      HMENU sub = GetSubMenu(top, i);
-      if (sub && GetMenuItemID(sub, 0) == (UINT)IDM_FILE_SLOT_BASE) return sub;
-    }
+    HMENU sub = GetSubMenu(menu, i), found;
+    if (!sub) continue;
+    if (slot_menu_base(sub) == base) return sub;
+    found = find_slot_menu_in(sub, base);
+    if (found) return found;
   }
   return NULL;
+}
+
+static HMENU find_slot_menu(int base)
+{
+  return find_slot_menu_in(g_menu, base);
 }
 
 /* Sets an item's text. With large_ui the menu is owner-drawn and paints
@@ -685,7 +697,7 @@ static void menu_set_text(HMENU menu, UINT id, const char *text)
 }
 
 /* "Slot 0 - hh:mm:ss  DD/MM/YYYY" for each slot that holds a save. */
-static void update_slot_menu_labels(HMENU slot_menu)
+static void update_slot_menu_labels(HMENU slot_menu, int base)
 {
   int i;
 
@@ -707,7 +719,15 @@ static void update_slot_menu_labels(HMENU slot_menu)
       else
         wsprintfA(label, "Slot &%d - Empty", i);
     }
-    menu_set_text(slot_menu, IDM_FILE_SLOT_BASE + i, label);
+    menu_set_text(slot_menu, base + i, label);
+    if (base == IDM_FILE_LOADSLOT_BASE)      /* nothing to load from an empty slot */
+    {
+      int has = 0;
+      if (emu_running) { state_path(i, path, sizeof(path)); has = state_file_time(path, stamp, sizeof(stamp)); }
+      EnableMenuItem(slot_menu, base + i, MF_BYCOMMAND | (has ? MF_ENABLED : (MF_GRAYED | MF_DISABLED)));
+    }
+    else if (base == IDM_FILE_SAVESLOT_BASE)
+      EnableMenuItem(slot_menu, base + i, MF_BYCOMMAND | (emu_running ? MF_ENABLED : (MF_GRAYED | MF_DISABLED)));
   }
 }
 
@@ -724,9 +744,11 @@ void gui_update_menu(void)
 
   EnableMenuItem(g_menu, IDM_FILE_CLOSE, MF_BYCOMMAND | rom_state);
   EnableMenuItem(g_menu, IDM_EMU_STOP, MF_BYCOMMAND | rom_state);
-  EnableMenuItem(g_menu, IDM_FILE_ROMINFO, MF_BYCOMMAND | rom_state);
+  EnableMenuItem(g_menu, IDM_FILE_ROMINFO, MF_BYCOMMAND | ((!emu_running && browser_has_selection()) ? MF_ENABLED : rom_state));
   EnableMenuItem(g_menu, IDM_FILE_SAVESTATE, MF_BYCOMMAND | rom_state);
   EnableMenuItem(g_menu, IDM_FILE_LOADSTATE, MF_BYCOMMAND | rom_state);
+  EnableMenuItem(g_menu, IDM_EMU_UNDOSAVE, MF_BYCOMMAND |
+                 ((emu_running && emu_can_undo_save()) ? MF_ENABLED : (MF_GRAYED | MF_DISABLED)));
   EnableMenuItem(g_menu, IDM_EMU_UNDOLOAD, MF_BYCOMMAND |
                  ((emu_running && emu_can_undo_load()) ? MF_ENABLED : (MF_GRAYED | MF_DISABLED)));
   EnableMenuItem(g_menu, IDM_FILE_STATEMGR, MF_BYCOMMAND | rom_state);
@@ -756,7 +778,9 @@ void gui_update_menu(void)
   CheckMenuItem(g_menu, IDM_EMU_PAUSE,
                 MF_BYCOMMAND | (emu_paused ? MF_CHECKED : MF_UNCHECKED));
 
-  update_slot_menu_labels(find_slot_menu());
+  update_slot_menu_labels(find_slot_menu(IDM_FILE_SLOT_BASE), IDM_FILE_SLOT_BASE);
+  update_slot_menu_labels(find_slot_menu(IDM_FILE_LOADSLOT_BASE), IDM_FILE_LOADSLOT_BASE);
+  update_slot_menu_labels(find_slot_menu(IDM_FILE_SAVESLOT_BASE), IDM_FILE_SAVESLOT_BASE);
   check_radio(g_menu, IDM_FILE_SLOT_BASE, GUI_SLOT_MAX, gui.state_slot);
   check_radio(g_menu, IDM_EMU_REGION_BASE, 5, config.region_detect);
   check_radio(g_menu, IDM_EMU_VDPMODE_BASE, 3, config.vdp_mode);
@@ -773,15 +797,24 @@ void gui_update_menu(void)
   check_radio(g_menu, IDM_VIEW_LIST, 2, gui.browser_grid_view);
   {
     int c;
-    for (c = 0; c < 4; c++)
+    for (c = 0; c < 2; c++)
       CheckMenuItem(g_menu, IDM_VIEW_COL_BASE + c,
                     MF_BYCOMMAND | ((c == 0 || !browser_column_hidden(c)) ? MF_CHECKED : MF_UNCHECKED));
     EnableMenuItem(g_menu, IDM_VIEW_COL_BASE, MF_BYCOMMAND | MF_GRAYED);   /* Name is always shown */
-    CheckMenuItem(g_menu, IDM_VIEW_COL_FAV, MF_BYCOMMAND | (browser_column_hidden(4) ? MF_UNCHECKED : MF_CHECKED));
+    CheckMenuItem(g_menu, IDM_VIEW_COL_FAV, MF_BYCOMMAND | (browser_column_hidden(2) ? MF_UNCHECKED : MF_CHECKED));   /* the star column is 2, Genre 3 */
+    CheckMenuItem(g_menu, IDM_VIEW_COL_EXTRA, MF_BYCOMMAND | (browser_column_hidden(3) ? MF_UNCHECKED : MF_CHECKED));
+    /* The columns only exist in the list view: grey while the grid is shown. */
+    {
+      static const int col_ids[] = { IDM_VIEW_COL_FAV, IDM_VIEW_COL_BASE + 1, IDM_VIEW_COL_EXTRA };
+      int k;
+      for (k = 0; k < 3; k++)
+        EnableMenuItem(g_menu, col_ids[k], MF_BYCOMMAND | (gui.browser_grid_view ? MF_GRAYED : MF_ENABLED));
+    }
   }
+  CheckMenuItem(g_menu, IDM_VIEW_SORT_RECENT, MF_BYCOMMAND | (gui.recent_mode ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(g_menu, IDM_VIEW_CLEANNAMES, MF_BYCOMMAND | (gui.clean_names ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_VIEW_FAVONLY, MF_BYCOMMAND | (browser_favorites_only() ? MF_CHECKED : MF_UNCHECKED));
   EnableMenuItem(g_menu, IDM_VIEW_FAVONLY, MF_BYCOMMAND | (emu_running ? MF_GRAYED : MF_ENABLED));
-  EnableMenuItem(g_menu, IDM_VIEW_TOGGLEFAV, MF_BYCOMMAND | (emu_running ? MF_GRAYED : MF_ENABLED));
   CheckMenuItem(g_menu, IDM_VIEW_TOOLBAR, MF_BYCOMMAND | (gui.hide_toolbar ? MF_UNCHECKED : MF_CHECKED));
   CheckMenuItem(g_menu, IDM_VIEW_FSTOOLBAR, MF_BYCOMMAND | (gui.fullscreen_toolbar ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_VIEW_SEARCHBAR, MF_BYCOMMAND | (browser_search_shown() ? MF_CHECKED : MF_UNCHECKED));
@@ -842,6 +875,12 @@ void gui_update_menu(void)
                 MF_BYCOMMAND | (!gui.sound_enabled ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_AUDIO_MONO,
                 MF_BYCOMMAND | (config.mono ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(g_menu, IDM_EMU_SLOWMO, MF_BYCOMMAND | (gui.slowmo ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(g_menu, IDM_AUDIO_MUTE_FM, MF_BYCOMMAND | (gui.mute_fm ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(g_menu, IDM_AUDIO_MUTE_PSG, MF_BYCOMMAND | (gui.mute_psg ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(g_menu, IDM_VIDEO_INTSCALE, MF_BYCOMMAND | (gui.integer_scale ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(g_menu, IDM_EMU_AUTOSAVE, MF_BYCOMMAND | (gui.autosave ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(g_menu, IDM_OPTIONS_OSD, MF_BYCOMMAND | (gui.osd ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_AUDIO_LOWPASS,
                 MF_BYCOMMAND | (config.filter == 1 ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_AUDIO_HQPSG,
@@ -1326,6 +1365,60 @@ int state_file_time(const char *path, char *out, int out_len)
   return 1;
 }
 
+#define AUTO_SLOT 10   /* the "resume where you left off" state: not one of the ten slots of the menu */
+static int resume_prompt_blocked;   /* set when the command line asked for a state of its own */
+
+/* What a slot held before the last save, so that save can be undone. */
+static uint8 *usave_state, *usave_thumb;
+static size_t usave_state_len, usave_thumb_len;
+static int    usave_slot = -1, usave_valid, usave_existed;
+
+static uint8 *read_whole_file(const char *path, size_t *len)
+{
+  FILE *fp = fopen(path, "rb");
+  long n;
+  uint8 *buf = NULL;
+
+  *len = 0;
+  if (!fp) return NULL;
+  if (fseek(fp, 0, SEEK_END) == 0 && (n = ftell(fp)) > 0 && fseek(fp, 0, SEEK_SET) == 0)
+  {
+    buf = (uint8 *)malloc((size_t)n);
+    if (buf && fread(buf, 1, (size_t)n, fp) == (size_t)n) *len = (size_t)n;
+    else { free(buf); buf = NULL; }
+  }
+  fclose(fp);
+  return buf;
+}
+
+int emu_can_undo_save(void)
+{
+  return usave_valid;
+}
+
+void emu_undo_save_state(void)
+{
+  char sp[GUI_PATH_LEN], tp[GUI_PATH_LEN];
+
+  if (!emu_running || !usave_valid) return;
+  usave_valid = 0;
+  state_path(usave_slot, sp, sizeof(sp));
+  thumb_path(usave_slot, tp, sizeof(tp));
+
+  if (usave_existed && usave_state)
+  {
+    write_file_atomic(sp, usave_state, usave_state_len);
+    if (usave_thumb) write_file_atomic(tp, usave_thumb, usave_thumb_len);
+    else DeleteFileA(tp);
+  }
+  else
+  {
+    DeleteFileA(sp);       /* the slot was empty before that save */
+    DeleteFileA(tp);
+  }
+  gui_notify("Save undone (slot %d)", usave_slot);
+}
+
 void emu_save_state(int slot)
 {
   char path[GUI_PATH_LEN];
@@ -1346,16 +1439,32 @@ void emu_save_state(int slot)
     emu_data_path("states", ext, 0, path, sizeof(path));
   }
 
+  /* Keep what the slot holds now, so this save can be undone. */
+  if (len > 0 && slot != AUTO_SLOT)
+  {
+    char tp[GUI_PATH_LEN];
+    free(usave_state); free(usave_thumb);
+    usave_state = usave_thumb = NULL;
+    state_path(slot, tp, sizeof(tp));
+    usave_state = read_whole_file(tp, &usave_state_len);
+    usave_existed = (usave_state != NULL);
+    thumb_path(slot, tp, sizeof(tp));
+    usave_thumb = read_whole_file(tp, &usave_thumb_len);
+    usave_slot = slot;
+    usave_valid = 0;
+  }
+
   if (len > 0 && write_file_atomic(path, buffer, (size_t)len))
   {
+    if (slot != AUTO_SLOT) usave_valid = 1;
     /* state_path() now finds the new file, so the thumbnail lands beside it. */
     thumb_path(slot, path, sizeof(path));
     video_save_thumbnail(path);
-    gui_notify("Saved to slot %d", slot);
+    if (slot != AUTO_SLOT) gui_notify("Saved to slot %d", slot);
   }
   else
   {
-    gui_notify("Could not write slot %d", slot);
+    if (slot != AUTO_SLOT) gui_notify("Could not write slot %d", slot);
   }
 
   free(buffer);
@@ -1403,7 +1512,7 @@ void emu_load_state(int slot)
   state_path(slot, path, sizeof(path));
 
   fp = fopen(path, "rb");
-  if (!fp) { gui_notify("Slot %d is empty", slot); return; }
+  if (!fp) { if (slot != AUTO_SLOT) gui_notify("Slot %d is empty", slot); return; }
 
   buffer = (uint8 *)malloc(STATE_SIZE);
   if (!buffer) { fclose(fp); gui_notify("Not enough memory to load the state"); return; }
@@ -1434,7 +1543,7 @@ void emu_load_state(int slot)
   {
     undo_valid = have_undo;
     emu_apply_sms_border();
-    gui_notify("Loaded slot %d", slot);
+    if (slot != AUTO_SLOT) gui_notify("Loaded slot %d", slot);
     waveout_flush();
     /* Banking was restored from the state, so 8-bit ROM patches now point at the
        wrong page. Rewrite them all. */
@@ -1638,8 +1747,12 @@ void emu_close_rom(void)
 {
   if (!emu_running) return;
 
+  /* "Auto Resume": the game as it is now, kept for the next time it is opened. */
+  if (gui.autosave && netplay_state() == NP_IDLE) emu_save_state(AUTO_SLOT);
+
   record_stop();
   netplay_disconnect(NULL);
+  history_game_ended();
 
   cheats_save_current();
   cheats_suspend();          /* undo patches while cart.rom is still valid */
@@ -1657,6 +1770,7 @@ void emu_close_rom(void)
   /* Closing from fullscreen: back to the windowed size first. */
   if (gui.fullscreen) video_set_fullscreen(0);
   undo_valid = 0;
+  usave_valid = 0;
   rewind_reset();
   rom_path[0] = '\0';
   rom_base[0] = '\0';
@@ -1763,6 +1877,50 @@ static int extract_7z_rom(const char *archive_path, char *out_path, int out_len)
 #endif
 }
 
+/* The Auto Resume question, with a "Do not ask again" box that remembers the answer. Returns 1 to resume. */
+static int resume_ask(void)
+{
+  typedef HRESULT (WINAPI *TaskDialogIndirect_t)(const TASKDIALOGCONFIG *, int *, int *, BOOL *);
+  static const TASKDIALOG_BUTTON buttons[] = { { IDYES, L"Resume" }, { IDNO, L"Start Fresh" } };
+  TaskDialogIndirect_t td = NULL;
+  HMODULE cc;
+  int answer = IDNO, remember = 0;
+
+  if (gui.resume_choice == 1) return 1;
+  if (gui.resume_choice == 2) return 0;
+
+  cc = GetModuleHandleA("comctl32.dll");
+  if (cc) td = (TaskDialogIndirect_t)GetProcAddress(cc, "TaskDialogIndirect");
+  if (td)
+  {
+    TASKDIALOGCONFIG cfg;
+    BOOL checked = FALSE;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.cbSize = sizeof(cfg);
+    cfg.hwndParent = g_hwnd;
+    cfg.pszWindowTitle = L"Genesis Plus";
+    cfg.pszMainIcon = TD_INFORMATION_ICON;
+    cfg.pszMainInstruction = L"Resume where you left off?";
+    cfg.pszVerificationText = L"Do not ask again";
+    cfg.cButtons = 2;
+    cfg.pButtons = buttons;
+    cfg.nDefaultButton = IDYES;
+    if (SUCCEEDED(td(&cfg, &answer, NULL, &checked))) remember = checked ? 1 : 0;
+    else answer = IDNO;
+  }
+  else
+  {
+    answer = MessageBoxA(g_hwnd, "Resume where you left off?", APP_NAME, MB_YESNO | MB_ICONQUESTION);
+  }
+
+  if (remember && (answer == IDYES || answer == IDNO))
+  {
+    gui.resume_choice = (answer == IDYES) ? 1 : 2;
+    config_save();
+  }
+  return answer == IDYES;
+}
+
 int emu_load_rom(const char *path)
 {
   char attempt[GUI_PATH_LEN];
@@ -1854,6 +2012,7 @@ int emu_load_rom(const char *path)
   video_viewport_changed();
 
   config_add_recent(rom_path);
+  history_game_started(rom_path);
   config_save();
 
   rebuild_recent_menu();
@@ -1869,6 +2028,21 @@ int emu_load_rom(const char *path)
   }
 
   next_frame_time = 0.0;
+
+  if (gui.autosave && !resume_prompt_blocked && netplay_state() == NP_IDLE)
+  {
+    char sp[GUI_PATH_LEN];
+    FILE *rf;
+
+    state_path(AUTO_SLOT, sp, sizeof(sp));
+    rf = fopen(sp, "rb");
+    if (rf)
+    {
+      fclose(rf);
+      if (resume_ask())
+        emu_load_state(AUTO_SLOT);
+    }
+  }
   return 1;
 }
 
@@ -2205,7 +2379,9 @@ static int np_command_locked(int id)
 
   if (id == IDM_EMU_PAUSE || id == IDM_EMU_RESET || id == IDM_EMU_HARDRESET) return 1;
   if (id == IDM_FILE_SAVESTATE || id == IDM_FILE_LOADSTATE || id == IDM_FILE_STATEMGR) return 1;
-  if (id == IDM_EMU_UNDOLOAD) return 1;
+  if (id == IDM_EMU_UNDOLOAD || id == IDM_EMU_UNDOSAVE) return 1;
+  if (id >= IDM_FILE_LOADSLOT_BASE && id < IDM_FILE_LOADSLOT_BASE + GUI_SLOT_MAX) return 1;
+  if (id >= IDM_FILE_SAVESLOT_BASE && id < IDM_FILE_SAVESLOT_BASE + GUI_SLOT_MAX) return 1;
   if (id >= IDM_ACCEL_QUICKSAVE && id <= IDM_ACCEL_SLOT_PREV) return 1;
   if (id >= IDM_FILE_SLOT_BASE && id < IDM_FILE_SLOT_BASE + GUI_SLOT_MAX) return 1;
   if (id == IDM_EMU_CHEATS) return 1;
@@ -2218,7 +2394,7 @@ static int np_command_locked(int id)
   if (id >= IDM_AUDIO_FMCORE_BASE && id < IDM_AUDIO_FMCORE_BASE + 5) return 1;
   if (id == IDM_AUDIO_ADVANCED) return 1;   /* changes the FM chip type */
   if (id >= IDM_AUDIO_RATE_BASE && id < IDM_AUDIO_RATE_BASE + 2) return 1;
-  if (id == IDM_INPUT_P1 || id == IDM_INPUT_P2) return 1;
+  if (id == IDM_INPUT_P1) return 1;
   if (id >= IDM_INPUT_PORTA_BASE && id < IDM_INPUT_PORTA_BASE + 10) return 1;
   if (id >= IDM_INPUT_PORTB_BASE && id < IDM_INPUT_PORTB_BASE + 10) return 1;
   return 0;
@@ -2303,11 +2479,28 @@ static void set_vsync_allowed(void)
   video_set_vsync_allowed(ok);
 }
 
+#define SLOWMO_ON() (gui.slowmo && !netplay_active())   /* half speed; not in a netplay session */
+
 static int skip_render;      /* run this frame without drawing it (frameskip) */
 
 static void run_one_frame(int present_video, int record)
 {
   int samples;
+
+  /* Mute FM / Mute PSG: the chip's level is taken to 0 for this frame only, so the saved levels stay as they were. */
+  int keep_fm = config.fm_preamp, keep_psg = config.psg_preamp;
+  if (gui.mute_fm)  config.fm_preamp  = 0;
+  if (gui.mute_psg) config.psg_preamp = 0;
+
+  /* The PSG only picks its level up when its stereo register is written, which games
+     seldom do, so the level is pushed in here: every frame while muted, once on un-muting. */
+  {
+    static int psg_was_muted;
+    if (gui.mute_psg || psg_was_muted)
+      psg_config(0, gui.mute_psg ? 0 : (unsigned)keep_psg,
+                 ((system_hw & SYSTEM_PBC) == SYSTEM_MD) ? 0xff : io_reg[6]);
+    psg_was_muted = gui.mute_psg;
+  }
 
   /* RAM patches are overwritten by the game, so they go back in each frame. */
   cheats_ram_update();
@@ -2328,9 +2521,29 @@ static void run_one_frame(int present_video, int record)
      when the samples are then thrown away. */
   samples = audio_update(soundframe);
 
+  config.fm_preamp  = (int16)keep_fm;
+  config.psg_preamp = (int16)keep_psg;
+
   if (gui.sound_enabled && waveout_pending() < gui.latency)
   {
-    waveout_submit(soundframe, samples);
+    if (SLOWMO_ON() && samples > 0 && samples <= 1024)
+    {
+      /* Half speed: every sample gets a neighbour halfway to the next one, so the
+         sound lasts twice as long (and plays an octave lower). */
+      static int16 slow[4096];
+      int i;
+      for (i = 0; i < samples; i++)
+      {
+        int n = (i + 1 < samples) ? i + 1 : i;
+        slow[4 * i]     = soundframe[2 * i];
+        slow[4 * i + 1] = soundframe[2 * i + 1];
+        slow[4 * i + 2] = (int16)((soundframe[2 * i] + soundframe[2 * n]) / 2);
+        slow[4 * i + 3] = (int16)((soundframe[2 * i + 1] + soundframe[2 * n + 1]) / 2);
+      }
+      waveout_submit(slow, samples * 2);
+    }
+    else if (!SLOWMO_ON())
+      waveout_submit(soundframe, samples);
   }
 
   if (record && recorder_active())
@@ -2372,6 +2585,15 @@ static void tick_fps(void)
 
     if (recorder_active() || netplay_state() != NP_IDLE) status_apply_prefixes();
   }
+}
+
+/* Input > Hotkeys changed a shortcut: the table Windows reads them from, and the menu labels. */
+void gui_hotkeys_changed(void)
+{
+  HACCEL old = g_accel;
+  g_accel = hotkeys_build_accel();
+  if (old) DestroyAcceleratorTable(old);
+  hotkeys_apply_menu();
 }
 
 /* Shows or hides the menu bar while fullscreen. Driven by the mouse: see
@@ -2561,6 +2783,9 @@ static void audio_recover(void)
   }
 }
 
+static void on_command(int id);
+
+
 static void emulation_step(void)
 {
   int fast, i, count;
@@ -2602,6 +2827,13 @@ static void emulation_step(void)
       emu_load_state(slot);      /* reports its own result */
       gui_update_menu();
     }
+  }
+
+  /* Gamepad hotkeys: a press of the button set for a shortcut. */
+  if (emu_running && !in_modal_loop && !netplay_active())
+  {
+    int c = gui_input_pad_hotkey();
+    if (c) on_command(c);
   }
 
   /* A session can't pause: the other player's game keeps waiting on this one. */
@@ -2703,7 +2935,7 @@ static void emulation_step(void)
     else
     {
       double now = now_seconds();
-      double period = 1.0 / emu_frame_rate();
+      double period = (1.0 / emu_frame_rate()) * (SLOWMO_ON() ? 2.0 : 1.0);
 
       if (next_frame_time == 0.0 || now - next_frame_time > 0.5)
       {
@@ -2831,6 +3063,19 @@ static void on_command(int id)
       lstrcpynA(path, gui.recent[i], sizeof(path));
       emu_load_rom(path);
     }
+    return;
+  }
+
+  if (id >= IDM_FILE_LOADSLOT_BASE && id < IDM_FILE_LOADSLOT_BASE + GUI_SLOT_MAX)
+  {
+    emu_load_state(id - IDM_FILE_LOADSLOT_BASE);
+    return;
+  }
+
+  if (id >= IDM_FILE_SAVESLOT_BASE && id < IDM_FILE_SAVESLOT_BASE + GUI_SLOT_MAX)
+  {
+    emu_save_state(id - IDM_FILE_SAVESLOT_BASE);
+    gui_update_menu();
     return;
   }
 
@@ -2994,7 +3239,7 @@ static void on_command(int id)
     return;
   }
 
-  if (id >= IDM_VIEW_COL_BASE && id < IDM_VIEW_COL_BASE + 4)
+  if (id >= IDM_VIEW_COL_BASE && id < IDM_VIEW_COL_BASE + 2)
   {
     browser_toggle_column(id - IDM_VIEW_COL_BASE);
     gui_update_menu();
@@ -3017,10 +3262,33 @@ static void on_command(int id)
     return;
   }
 
+  if (id >= IDM_VIEW_COL_EXTRA && id < IDM_VIEW_COL_EXTRA + 1)
+  {
+    browser_toggle_column(3 + (id - IDM_VIEW_COL_EXTRA));
+    gui_update_menu();
+    return;
+  }
+
+  if (id == IDM_VIEW_SORT_RECENT)
+  {
+    browser_toggle_recent();
+    gui_update_menu();
+    return;
+  }
+
   if (id == IDM_VIEW_COL_FAV)
   {
-    browser_toggle_column(4);
+    browser_toggle_column(2);
     gui_update_menu();
+    return;
+  }
+
+  if (id == IDM_VIEW_CLEANNAMES)
+  {
+    gui.clean_names = !gui.clean_names;
+    browser_refresh_names();
+    gui_update_menu();
+    config_save();
     return;
   }
 
@@ -3028,12 +3296,6 @@ static void on_command(int id)
   {
     browser_toggle_favorites_only();
     gui_update_menu();
-    return;
-  }
-
-  if (id == IDM_VIEW_TOGGLEFAV)
-  {
-    browser_toggle_favorite();
     return;
   }
 
@@ -3061,7 +3323,10 @@ static void on_command(int id)
 
   if (id == IDM_VIEW_FINDSEARCH)
   {
-    browser_focus_search();
+    if (!browser_panel_visible()) return;
+    if (browser_search_shown()) browser_toggle_searchbar();                  /* shown -> hidden */
+    else { if (gui.hide_searchbar) browser_toggle_searchbar(); browser_focus_search(); }   /* hidden -> shown, ready to type */
+    gui_update_menu();
     return;
   }
 
@@ -3214,7 +3479,8 @@ static void on_command(int id)
       break;
 
     case IDM_FILE_ROMINFO:
-      dlg_rom_info(g_hwnd);
+      if (!emu_running && browser_has_selection()) browser_show_rom_info();
+      else dlg_rom_info(g_hwnd);
       break;
 
     case IDM_FILE_STATEMGR:
@@ -3300,6 +3566,51 @@ static void on_command(int id)
       break;
     }
 
+    case IDM_EMU_SLOWMO:
+      gui.slowmo = !gui.slowmo;
+      waveout_flush();
+      next_frame_time = 0.0;
+      gui_notify(gui.slowmo ? "Slow motion" : "Normal speed");
+      gui_update_menu();
+      config_save();
+      break;
+
+    case IDM_INPUT_HOTKEYS:
+      dlg_hotkeys(g_hwnd);
+      break;
+
+    case IDM_VIDEO_INTSCALE:
+      gui.integer_scale = !gui.integer_scale;
+      video_invalidate();
+      InvalidateRect(g_hwnd, NULL, TRUE);
+      gui_update_menu();
+      config_save();
+      break;
+
+    case IDM_AUDIO_MUTE_FM:
+      gui.mute_fm = !gui.mute_fm;
+      gui_update_menu();
+      config_save();
+      break;
+
+    case IDM_AUDIO_MUTE_PSG:
+      gui.mute_psg = !gui.mute_psg;
+      gui_update_menu();
+      config_save();
+      break;
+
+    case IDM_EMU_AUTOSAVE:
+      gui.autosave = !gui.autosave;
+      gui_update_menu();
+      config_save();
+      break;
+
+    case IDM_OPTIONS_OSD:
+      gui.osd = !gui.osd;
+      gui_update_menu();
+      config_save();
+      break;
+
     case IDM_FILE_OPENDIR:
       /* The folder holding Genesis Plus.exe, genesis-plus.ini, states, saves, cheats, ... */
       ShellExecuteA(g_hwnd, "open", osd_path(""), NULL, NULL, SW_SHOWNORMAL);
@@ -3349,6 +3660,11 @@ static void on_command(int id)
 
     case IDM_EMU_UNDOLOAD:
       emu_undo_load_state();
+      gui_update_menu();
+      break;
+
+    case IDM_EMU_UNDOSAVE:
+      emu_undo_save_state();
       gui_update_menu();
       break;
 
@@ -3538,10 +3854,6 @@ static void on_command(int id)
       dlg_input(g_hwnd, 0);
       break;
 
-    case IDM_INPUT_P2:
-      dlg_input(g_hwnd, 1);
-      break;
-
     case IDM_HELP_SHORTCUTS:
       dlg_shortcuts(g_hwnd);
       break;
@@ -3598,11 +3910,11 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_INITMENUPOPUP:
     {
       /* Refresh the slot timestamps each time the Save Slot menu opens. */
-      HMENU slot_menu = find_slot_menu();
-      if (slot_menu && (HMENU)wp == slot_menu)
+      int base = slot_menu_base((HMENU)wp);
+      if (base)
       {
-        update_slot_menu_labels(slot_menu);
-        check_radio(slot_menu, IDM_FILE_SLOT_BASE, GUI_SLOT_MAX, gui.state_slot);
+        update_slot_menu_labels((HMENU)wp, base);
+        if (base == IDM_FILE_SLOT_BASE) check_radio((HMENU)wp, IDM_FILE_SLOT_BASE, GUI_SLOT_MAX, gui.state_slot);
         return 0;
       }
       break;
@@ -3886,6 +4198,7 @@ static int create_main_window(void)
   }
 
   if (gui.large_ui) theme_ownerdraw_menu(g_menu);
+  hotkeys_apply_menu();   /* the labels show the shortcuts as they are set now */
 
   /*
    * Use the saved position only if it still lands on a real monitor --
@@ -3927,7 +4240,7 @@ static int create_main_window(void)
 
   browser_panel_create(g_hwnd);
 
-  g_accel = LoadAcceleratorsA(g_inst, MAKEINTRESOURCEA(IDR_ACCELERATORS));
+  g_accel = hotkeys_build_accel();
 
   DragAcceptFiles(g_hwnd, TRUE);
   layout_status();
@@ -3939,6 +4252,23 @@ static int create_main_window(void)
     /* Now that the status bar exists its real height is known, so the
        client area can be sized to give exactly the requested scale. */
     gui_resize_to_scale(gui.scale);
+
+    /* A big scale (3x to start with) can be taller than a small screen: take it down until the
+       window fits the work area. */
+    {
+      MONITORINFO fit;
+      RECT wr;
+      HMONITOR mon = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST);
+
+      fit.cbSize = sizeof(fit);
+      while (gui.scale > 1 && GetMonitorInfo(mon, &fit) && GetWindowRect(g_hwnd, &wr) &&
+             (wr.bottom - wr.top > fit.rcWork.bottom - fit.rcWork.top ||
+              wr.right - wr.left > fit.rcWork.right - fit.rcWork.left))
+      {
+        gui.scale--;
+        gui_resize_to_scale(gui.scale);
+      }
+    }
   }
 
   /* No saved position: open in the middle of the screen, not wherever Windows
@@ -4006,6 +4336,7 @@ static void parse_command_line(char *rom, int rom_len)
       else if ((!lstrcmpiW(o, L"s") || !lstrcmpiW(o, L"state")) && i + 1 < argc)
       {
         cli_state = _wtoi(argv[++i]);
+        resume_prompt_blocked = 1;
         if (cli_state < 0 || cli_state >= GUI_SLOT_MAX) cli_state = -1;
       }
       continue;   /* anything else starting with - is not for us */
@@ -4016,6 +4347,19 @@ static void parse_command_line(char *rom, int rom_len)
   }
 
   LocalFree(argv);
+}
+
+/* Ctrl+C / X / V / A / Z with the focus in a text box is copy and friends, not a program shortcut
+   (Ctrl+C is Cheats). */
+static int is_text_edit_key(const MSG *m)
+{
+  char cls[16];
+  HWND f;
+
+  if (m->message != WM_KEYDOWN || !(GetKeyState(VK_CONTROL) & 0x8000)) return 0;
+  if (m->wParam != 'C' && m->wParam != 'X' && m->wParam != 'V' && m->wParam != 'A' && m->wParam != 'Z') return 0;
+  f = GetFocus();
+  return f && GetClassNameA(f, cls, sizeof(cls)) && !lstrcmpiA(cls, "Edit");
 }
 
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
@@ -4038,6 +4382,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
   error_init();
   config_load();
+  history_load();
   netplay_init(&np_iface);
   emu_apply_nuked_type();
   gui.fullscreen = 0;   /* never restored across runs -- see the note near WinMain's end */
@@ -4200,14 +4545,11 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && browser_panel_handle_return())
           continue;
 
-        /* Ctrl+F: the search bar. Handled here, ahead of the dialog-style
-           key handling, so it works whichever control has the focus. */
-        if (msg.message == WM_KEYDOWN && msg.wParam == 'F' &&
-            (GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000))
-        {
-          browser_focus_search();
+        /* Shortcuts first, ahead of the dialog-style key handling, so they work whichever control
+           has the focus (Ctrl+F toggles the search bar, whatever it is set to under Input > Hotkeys). */
+        if ((msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) && g_accel && !is_text_edit_key(&msg) &&
+            TranslateAccelerator(g_hwnd, g_accel, &msg))
           continue;
-        }
 
         /* IsDialogMessage is documented as usable on any top-level window
            that manages child controls the way a dialog does, not only real
@@ -4219,19 +4561,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         if (IsDialogMessage(g_hwnd, &msg)) continue;
       }
 
-      /* Ctrl+C (and friends) in the browser's search box is copy, not the
-         Cheats shortcut. */
-      int text_edit = 0;
-
-      if (msg.message == WM_KEYDOWN && (GetKeyState(VK_CONTROL) & 0x8000) &&
-          (msg.wParam == 'C' || msg.wParam == 'X' || msg.wParam == 'V' ||
-           msg.wParam == 'A' || msg.wParam == 'Z'))
-      {
-        char cls[16];
-        HWND f = GetFocus();
-
-        if (f && GetClassNameA(f, cls, sizeof(cls)) && !lstrcmpiA(cls, "Edit")) text_edit = 1;
-      }
+      int text_edit = is_text_edit_key(&msg);
 
       if (text_edit || !g_accel || !TranslateAccelerator(g_hwnd, g_accel, &msg))
       {

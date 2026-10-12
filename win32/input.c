@@ -39,6 +39,7 @@
 #include "shared.h"
 #include "gui.h"
 #include "netplay.h"
+#include "resource.h"
 
 /****************************************************************************
  * XInput, loaded on demand
@@ -58,6 +59,10 @@
 #define XPAD_Y              0x8000
 #define XPAD_LEFT_TRIGGER   0x00010000
 #define XPAD_RIGHT_TRIGGER  0x00020000
+#define XPAD_RS_UP          0x00040000   /* the right stick, as four more buttons */
+#define XPAD_RS_DOWN        0x00080000
+#define XPAD_RS_LEFT        0x00100000
+#define XPAD_RS_RIGHT       0x00200000
 
 #define XPAD_TRIGGER_THRESHOLD 30   /* out of 0-255; comfortably past resting noise */
 
@@ -144,6 +149,10 @@ static int  frame_advance_armed;
 #define DI_DPAD_DOWN     (1u << 25)
 #define DI_DPAD_LEFT     (1u << 26)
 #define DI_DPAD_RIGHT    (1u << 27)
+#define DI_RS_UP         (1u << 28)   /* the right stick, as four more buttons */
+#define DI_RS_DOWN       (1u << 29)
+#define DI_RS_LEFT       (1u << 30)
+#define DI_RS_RIGHT      (1u << 31)
 
 static IDirectInput8A *di_iface;
 
@@ -157,6 +166,9 @@ static di_joy_info          joy_info[GUI_INPUT_DI_MAX];
 static int                  joy_count;
 static IDirectInputDevice8A *joy_dev[GUI_INPUT_DI_MAX];
 static DIJOYSTATE2          joy_state[GUI_INPUT_DI_MAX];
+static int                  joy_rs_pair[GUI_INPUT_DI_MAX];       /* 0 = Rx/Ry is the right stick, 1 = Z/Rz, -1 = none */
+static LONG                 joy_rs_base[GUI_INPUT_DI_MAX][2];    /* where those axes rested when first read */
+static int                  joy_rs_base_ok[GUI_INPUT_DI_MAX];
 static int                  joy_connected[GUI_INPUT_DI_MAX];
 
 /* Same slow-reprobe idea as xpad_known[]/xpad_next_probe[] below: a device
@@ -429,6 +441,36 @@ static int di_ensure_acquired(int idx)
   IDirectInputDevice8_SetProperty(joy_dev[idx], DIPROP_RANGE, &range.diph);
   range.diph.dwObj = DIJOFS_Y;
   IDirectInputDevice8_SetProperty(joy_dev[idx], DIPROP_RANGE, &range.diph);
+  /* The right stick's axes get the same range (a missing axis just refuses). */
+  range.diph.dwObj = DIJOFS_Z;   IDirectInputDevice8_SetProperty(joy_dev[idx], DIPROP_RANGE, &range.diph);
+  range.diph.dwObj = DIJOFS_RX;  IDirectInputDevice8_SetProperty(joy_dev[idx], DIPROP_RANGE, &range.diph);
+  range.diph.dwObj = DIJOFS_RY;  IDirectInputDevice8_SetProperty(joy_dev[idx], DIPROP_RANGE, &range.diph);
+  range.diph.dwObj = DIJOFS_RZ;  IDirectInputDevice8_SetProperty(joy_dev[idx], DIPROP_RANGE, &range.diph);
+  {
+    /* Which axes are the right stick: Rx / Ry on Xbox-style pads, Z / Rz on PlayStation-style ones. */
+    DIDEVICEOBJECTINSTANCEA oi;
+    ZeroMemory(&oi, sizeof(oi));
+    oi.dwSize = sizeof(oi);
+    if (SUCCEEDED(IDirectInputDevice8_GetObjectInfo(joy_dev[idx], &oi, DIJOFS_RX, DIPH_BYOFFSET)))
+    {
+      ZeroMemory(&oi, sizeof(oi));
+      oi.dwSize = sizeof(oi);
+      joy_rs_pair[idx] = SUCCEEDED(IDirectInputDevice8_GetObjectInfo(joy_dev[idx], &oi, DIJOFS_RY, DIPH_BYOFFSET)) ? 0 : -1;
+    }
+    else joy_rs_pair[idx] = -1;
+    if (joy_rs_pair[idx] < 0)
+    {
+      ZeroMemory(&oi, sizeof(oi));
+      oi.dwSize = sizeof(oi);
+      if (SUCCEEDED(IDirectInputDevice8_GetObjectInfo(joy_dev[idx], &oi, DIJOFS_Z, DIPH_BYOFFSET)))
+      {
+        ZeroMemory(&oi, sizeof(oi));
+        oi.dwSize = sizeof(oi);
+        if (SUCCEEDED(IDirectInputDevice8_GetObjectInfo(joy_dev[idx], &oi, DIJOFS_RZ, DIPH_BYOFFSET))) joy_rs_pair[idx] = 1;
+      }
+    }
+    joy_rs_base_ok[idx] = 0;
+  }
 
   IDirectInputDevice8_Acquire(joy_dev[idx]);
   return 1;
@@ -697,6 +739,37 @@ static void poll_gamepads(void)
    leaving every caller to remember which backend it's talking to. Returns
    0, leaving the outputs untouched, for an unmapped or disconnected
    device. */
+/* The right stick as four buttons. */
+static DWORD xpad_rs_bits(const XPAD_STATE *st, int dz)
+{
+  DWORD b = 0;
+  if (st->Gamepad.sThumbRY >  dz) b |= XPAD_RS_UP;
+  if (st->Gamepad.sThumbRY < -dz) b |= XPAD_RS_DOWN;
+  if (st->Gamepad.sThumbRX < -dz) b |= XPAD_RS_LEFT;
+  if (st->Gamepad.sThumbRX >  dz) b |= XPAD_RS_RIGHT;
+  return b;
+}
+
+/* Same for a DirectInput pad. Triggers can share these axes and rest at one end, so the
+   deflection is measured from where the axis rested when first read. */
+static DWORD di_rs_bits(int idx, const DIJOYSTATE2 *st, int dz)
+{
+  LONG x, y;
+  DWORD b = 0;
+
+  if (idx < 0 || idx >= GUI_INPUT_DI_MAX || joy_rs_pair[idx] < 0) return 0;
+  if (joy_rs_pair[idx] == 0) { x = st->lRx; y = st->lRy; }
+  else                       { x = st->lZ;  y = st->lRz; }
+  if (!joy_rs_base_ok[idx]) { joy_rs_base[idx][0] = x; joy_rs_base[idx][1] = y; joy_rs_base_ok[idx] = 1; }
+  x -= joy_rs_base[idx][0];
+  y -= joy_rs_base[idx][1];
+  if (y >  dz) b |= DI_RS_DOWN;
+  if (y < -dz) b |= DI_RS_UP;
+  if (x < -dz) b |= DI_RS_LEFT;
+  if (x >  dz) b |= DI_RS_RIGHT;
+  return b;
+}
+
 static int pad_stick(int device, int *x, int *y)
 {
   if (device >= 0 && device < XPAD_MAX_DEVICES)
@@ -738,12 +811,14 @@ static DWORD gamepad_buttons(int device, int deadzone_raw)
     b = xpad_state[device].Gamepad.wButtons;
     if (xpad_state[device].Gamepad.bLeftTrigger  > XPAD_TRIGGER_THRESHOLD) b |= XPAD_LEFT_TRIGGER;
     if (xpad_state[device].Gamepad.bRightTrigger > XPAD_TRIGGER_THRESHOLD) b |= XPAD_RIGHT_TRIGGER;
+    b |= xpad_rs_bits(&xpad_state[device], deadzone_raw);
   }
   else if (is_di_device(device))
   {
     int idx = device - XPAD_MAX_DEVICES;
     if (!joy_connected[idx]) return 0;
     b = di_raw_buttons(&joy_state[idx]);
+    b |= di_rs_bits(idx, &joy_state[idx], deadzone_raw);
   }
   else
   {
@@ -814,6 +889,7 @@ static void resolve_map(int slot, t_pad_map *out)
   {
     *out = gui.pad[0];
     memset(out->key, 0, sizeof(out->key));
+    out->turbo = 0;
 
     if (slot >= 5 && slot <= 7)
     {
@@ -833,7 +909,12 @@ static void resolve_map(int slot, t_pad_map *out)
   }
 }
 
+/* Counts frames, for the turbo buttons. */
+static unsigned turbo_frames;
+
 /* Collects one pad's state into a set of INPUT_* bits. */
+static int gamepad_button_held_now(int device, int mask, int deadzone_raw_val);
+
 static uint16 read_pad(int slot)
 {
   t_pad_map map;
@@ -854,6 +935,17 @@ static uint16 read_pad(int slot)
   if (PRESSED(PAD_Y))     pad |= INPUT_Y;
   if (PRESSED(PAD_Z))     pad |= INPUT_Z;
   if (PRESSED(PAD_MODE))  pad |= INPUT_MODE;
+
+  /* Turbo buttons fire on and off (about 15 times a second) while they are held. */
+  if (map.turbo && ((turbo_frames >> 1) & 1))
+  {
+    if (map.turbo & (1u << PAD_A)) pad &= ~INPUT_A;
+    if (map.turbo & (1u << PAD_B)) pad &= ~INPUT_B;
+    if (map.turbo & (1u << PAD_C)) pad &= ~INPUT_C;
+    if (map.turbo & (1u << PAD_X)) pad &= ~INPUT_X;
+    if (map.turbo & (1u << PAD_Y)) pad &= ~INPUT_Y;
+    if (map.turbo & (1u << PAD_Z)) pad &= ~INPUT_Z;
+  }
 
   /* Opposite directions cannot be held on real hardware. */
   if (PRESSED(PAD_UP))         pad |= INPUT_UP;
@@ -967,6 +1059,7 @@ int win32_input_update(void)
   int sw, sh;
   RECT dest;
 
+  turbo_frames++;
   poll_gamepads();
   video_get_output_rect(&dest, &sw, &sh);
 
@@ -1221,6 +1314,7 @@ static int gamepad_button_held_now(int device, int mask, int deadzone_raw_val)
     if (st.Gamepad.sThumbLX >  deadzone_raw_val) b |= XPAD_DPAD_RIGHT;
     if (st.Gamepad.bLeftTrigger  > XPAD_TRIGGER_THRESHOLD) b |= XPAD_LEFT_TRIGGER;
     if (st.Gamepad.bRightTrigger > XPAD_TRIGGER_THRESHOLD) b |= XPAD_RIGHT_TRIGGER;
+    b |= xpad_rs_bits(&st, deadzone_raw_val);
 
     return (b & (DWORD)mask) != 0;
   }
@@ -1239,6 +1333,7 @@ static int gamepad_button_held_now(int device, int mask, int deadzone_raw_val)
     if (st.lY < -deadzone_raw_val) b |= DI_DPAD_UP;
     if (st.lX < -deadzone_raw_val) b |= DI_DPAD_LEFT;
     if (st.lX >  deadzone_raw_val) b |= DI_DPAD_RIGHT;
+    b |= di_rs_bits(idx, &st, deadzone_raw_val);
 
     return (b & (DWORD)mask) != 0;
   }
@@ -1250,21 +1345,26 @@ int gui_input_fast_forward(void)
 {
   /* Deliberately absent from the accelerator table so it reaches us here
      regardless of which key it's mapped to. */
-  if (gui.key_fast_forward && key_down(gui.key_fast_forward)) return 1;
-  if (gamepad_button_held_now(gui.pad[0].device, gui.pad_fast_forward, deadzone_raw(0))) return 1;
+  int vk = hotkey_hold_vk(HK_FASTFWD);
+  if (vk && key_down(vk)) return 1;
+  if (gui.pad[0].device >= 0 && gui.pad[0].device < XPAD_MAX_DEVICES &&      /* the masks are XInput's */
+      gamepad_button_held_now(gui.pad[0].device, gui.padhk[PADHK_FASTFWD], deadzone_raw(0))) return 1;
   return 0;
 }
 
 int gui_input_rewind(void)
 {
-  if (gui.key_rewind && key_down(gui.key_rewind)) return 1;
-  if (gamepad_button_held_now(gui.pad[0].device, gui.pad_rewind, deadzone_raw(0))) return 1;
+  int vk = hotkey_hold_vk(HK_REWIND);
+  if (vk && key_down(vk)) return 1;
+  if (gui.pad[0].device >= 0 && gui.pad[0].device < XPAD_MAX_DEVICES &&
+      gamepad_button_held_now(gui.pad[0].device, gui.padhk[PADHK_REWIND], deadzone_raw(0))) return 1;
   return 0;
 }
 
 int gui_input_frame_advance(void)
 {
-  int down = key_down(VK_OEM_5);   /* backslash */
+  int vk = hotkey_frame_advance_vk();   /* backslash unless changed under Input > Hotkeys */
+  int down = vk ? key_down(vk) : 0;
 
   if (down && !frame_advance_armed)
   {
@@ -1274,6 +1374,33 @@ int gui_input_frame_advance(void)
   if (!down) frame_advance_armed = 0;
 
   return 0;
+}
+
+/* Gamepad hotkeys: a press of the pad button set for a shortcut (Controls > Gamepad Hotkeys) on Player 1's
+   XInput pad. Returns the menu command that was just pressed, or 0. Fast Forward and Rewind are held
+   buttons, read separately. */
+int gui_input_pad_hotkey(void)
+{
+  static int armed[16];
+  int dev = gui.pad[0].device, i, result = 0;
+
+  if (dev < 0 || dev >= XPAD_MAX_DEVICES) return 0;   /* XInput pads only */
+  for (i = 0; i < padhk_count() && i < 16; i++)
+  {
+    int down;
+    if (padhk_is_hold(i)) continue;
+    down = gui.padhk[i] && gamepad_button_held_now(dev, gui.padhk[i], 20000);
+    /* A diagonal push of the right stick would run two shortcuts at once: it counts as neither. */
+    if (down && (gui.padhk[i] & (XPAD_RS_UP | XPAD_RS_DOWN | XPAD_RS_LEFT | XPAD_RS_RIGHT)))
+    {
+      int held = gamepad_button_held_now(dev, XPAD_RS_UP, 20000) + gamepad_button_held_now(dev, XPAD_RS_DOWN, 20000) +
+                 gamepad_button_held_now(dev, XPAD_RS_LEFT, 20000) + gamepad_button_held_now(dev, XPAD_RS_RIGHT, 20000);
+      if (held > 1) down = 0;
+    }
+    if (down && !armed[i]) { armed[i] = 1; if (!result) result = padhk_cmd(i); }
+    if (!down) armed[i] = 0;
+  }
+  return result;
 }
 
 static int save_slot_armed[10];
@@ -1380,6 +1507,7 @@ int input_pad_button_down(int device, int mask)
     if (st.Gamepad.sThumbLX >  XPAD_DEADZONE) b |= XPAD_DPAD_RIGHT;
     if (st.Gamepad.bLeftTrigger  > XPAD_TRIGGER_THRESHOLD) b |= XPAD_LEFT_TRIGGER;
     if (st.Gamepad.bRightTrigger > XPAD_TRIGGER_THRESHOLD) b |= XPAD_RIGHT_TRIGGER;
+    b |= xpad_rs_bits(&st, XPAD_DEADZONE);
     return (b & (DWORD)mask) != 0;
   }
 
@@ -1396,6 +1524,7 @@ int input_pad_button_down(int device, int mask)
     if (st.lY < -XPAD_DEADZONE) b |= DI_DPAD_UP;
     if (st.lX < -XPAD_DEADZONE) b |= DI_DPAD_LEFT;
     if (st.lX >  XPAD_DEADZONE) b |= DI_DPAD_RIGHT;
+    b |= di_rs_bits(device - XPAD_MAX_DEVICES, &st, XPAD_DEADZONE);
     return (b & (DWORD)mask) != 0;
   }
 
@@ -1410,7 +1539,8 @@ int input_capture_gamepad(int device)
     {
       XPAD_DPAD_UP, XPAD_DPAD_DOWN, XPAD_DPAD_LEFT, XPAD_DPAD_RIGHT,
       XPAD_START, XPAD_BACK, XPAD_LEFT_SHOULDER, XPAD_RIGHT_SHOULDER,
-      XPAD_A, XPAD_B, XPAD_X, XPAD_Y, XPAD_LEFT_TRIGGER, XPAD_RIGHT_TRIGGER
+      XPAD_A, XPAD_B, XPAD_X, XPAD_Y, XPAD_LEFT_TRIGGER, XPAD_RIGHT_TRIGGER,
+      XPAD_RS_UP, XPAD_RS_DOWN, XPAD_RS_LEFT, XPAD_RS_RIGHT
     };
 
     XPAD_STATE st;
@@ -1429,6 +1559,7 @@ int input_capture_gamepad(int device)
     if (st.Gamepad.sThumbLX >  XPAD_DEADZONE) b |= XPAD_DPAD_RIGHT;
     if (st.Gamepad.bLeftTrigger  > XPAD_TRIGGER_THRESHOLD) b |= XPAD_LEFT_TRIGGER;
     if (st.Gamepad.bRightTrigger > XPAD_TRIGGER_THRESHOLD) b |= XPAD_RIGHT_TRIGGER;
+    b |= xpad_rs_bits(&st, XPAD_DEADZONE);
 
     for (i = 0; i < (int)(sizeof(masks) / sizeof(masks[0])); i++)
     {
@@ -1453,6 +1584,7 @@ int input_capture_gamepad(int device)
     if (st.lY < -XPAD_DEADZONE) b |= DI_DPAD_UP;
     if (st.lX < -XPAD_DEADZONE) b |= DI_DPAD_LEFT;
     if (st.lX >  XPAD_DEADZONE) b |= DI_DPAD_RIGHT;
+    b |= di_rs_bits(idx, &st, XPAD_DEADZONE);
 
     if (b & DI_DPAD_UP)    return DI_DPAD_UP;
     if (b & DI_DPAD_DOWN)  return DI_DPAD_DOWN;
@@ -1462,6 +1594,10 @@ int input_capture_gamepad(int device)
     {
       if (b & DI_BTN(i)) return (int)DI_BTN(i);
     }
+    if (b & DI_RS_UP)    return (int)DI_RS_UP;
+    if (b & DI_RS_DOWN)  return (int)DI_RS_DOWN;
+    if (b & DI_RS_LEFT)  return (int)DI_RS_LEFT;
+    if (b & DI_RS_RIGHT) return (int)DI_RS_RIGHT;
 
     return 0;
   }
@@ -1534,6 +1670,10 @@ const char *input_pad_button_name(int device, int mask)
     { XPAD_Y,              "Y button"    },
     { XPAD_LEFT_TRIGGER,   "LT button"   },
     { XPAD_RIGHT_TRIGGER,  "RT button"   },
+    { XPAD_RS_UP,          "Right Stick Up"    },
+    { XPAD_RS_DOWN,        "Right Stick Down"  },
+    { XPAD_RS_LEFT,        "Right Stick Left"  },
+    { XPAD_RS_RIGHT,       "Right Stick Right" },
   };
   static char name[32];
   int i;
@@ -1546,6 +1686,10 @@ const char *input_pad_button_name(int device, int mask)
     if (mask == (int)DI_DPAD_DOWN)  return "D-pad/Stick Down";
     if (mask == (int)DI_DPAD_LEFT)  return "D-pad/Stick Left";
     if (mask == (int)DI_DPAD_RIGHT) return "D-pad/Stick Right";
+    if (mask == (int)DI_RS_UP)      return "Right Stick Up";
+    if (mask == (int)DI_RS_DOWN)    return "Right Stick Down";
+    if (mask == (int)DI_RS_LEFT)    return "Right Stick Left";
+    if (mask == (int)DI_RS_RIGHT)   return "Right Stick Right";
 
     for (i = 0; i < DI_MAX_BUTTONS; i++)
     {

@@ -518,29 +518,6 @@ void ROMCheatUpdate(void)
  * List management
  ****************************************************************************/
 
-int cheats_count(void)
-{
-  return cheat_count;
-}
-
-const char *cheats_get_code(int index)
-{
-  if (index < 0 || index >= cheat_count) return "";
-  return cheats[index].code;
-}
-
-const char *cheats_get_desc(int index)
-{
-  if (index < 0 || index >= cheat_count) return "";
-  return cheats[index].desc;
-}
-
-int cheats_is_enabled(int index)
-{
-  if (index < 0 || index >= cheat_count) return 0;
-  return cheats[index].enabled;
-}
-
 int cheats_is_valid(int index)
 {
   if (index < 0 || index >= cheat_count) return 0;
@@ -1417,6 +1394,22 @@ static INT_PTR CALLBACK cheats_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
           SetWindowTheme(header, L"ItemsView", NULL);
           InvalidateRect(header, NULL, TRUE);
         }
+      }
+      {
+        static const GuiTip tips[] =
+        {
+          { IDC_CHEATS_ENABLE, NULL, "Turns every cheat on or off at once, whatever each cheat's own box says." },
+          { IDC_CHEATS_LIST, NULL, "Your cheats. Tick the box in front of a cheat to switch that one on; select one to edit it below." },
+          { IDC_CHEATS_DESC, "Name:", "A name to remember the cheat by." },
+          { IDC_CHEATS_CODE, "Code:", "A Game Genie, Action Replay or raw code. The hint under the buttons shows what this console accepts." },
+          { IDC_CHEATS_ADD, NULL, "Add the name and code above to the list." },
+          { IDC_CHEATS_SAVE, NULL, "Write the name and code above back into the selected cheat." },
+          { IDC_CHEATS_REMOVE, NULL, "Remove the selected cheat." },
+          { IDC_CHEATS_CLEAR, NULL, "Remove every cheat in the list (it asks first)." },
+          { IDC_CHEATS_LOADCHT, NULL, "Load cheats from a RetroArch .cht file." },
+          { IDOK, NULL, "Close this window." },
+        };
+        gui_dialog_tips(dlg, tips, (int)(sizeof(tips) / sizeof(tips[0])));
       }
       cheats_hint_text(hint, sizeof(hint));
       SetDlgItemTextA(dlg, IDC_CHEATS_HINT, hint);

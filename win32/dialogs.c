@@ -6,6 +6,7 @@
 
 #include <windows.h>
 #include <ctype.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <commctrl.h>
@@ -30,7 +31,8 @@
  * label (a static with that text) next to it.
  ****************************************************************************/
 
-typedef struct { int id; const char *label; const char *tip; } TipDef;
+#define TipDef GuiTip
+#define dlg_add_tips gui_dialog_tips
 
 static void dlg_add_tip(HWND tt, HWND dlg, HWND ctl, const char *text)
 {
@@ -46,7 +48,7 @@ static void dlg_add_tip(HWND tt, HWND dlg, HWND ctl, const char *text)
   SendMessageA(tt, TTM_ADDTOOLA, 0, (LPARAM)&ti);
 }
 
-static void dlg_add_tips(HWND dlg, const TipDef *defs, int n)
+void gui_dialog_tips(HWND dlg, const GuiTip *defs, int n)
 {
   HWND tt = CreateWindowExA(WS_EX_TOPMOST, TOOLTIPS_CLASSA, NULL, WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
                             0, 0, 0, 0, dlg, NULL, GetModuleHandle(NULL), NULL);
@@ -94,6 +96,7 @@ static struct
 {
   int       player;     /* the tab showing */
   int       sel;        /* the mapping being assigned */
+  int       test;       /* Test Keys is ticked: the keyboard only lights spots, it does not operate the window */
   unsigned  live;       /* bit per pad button: its key or gamepad button is held right now */
   HBITMAP   picture;    /* the controller, scaled to pic */
   HFONT     font;       /* the dialog font, 21% larger */
@@ -103,12 +106,11 @@ static struct
   struct { t_pad_map map; uint8 padtype; int deadzone; } other[2];   /* each player's working copy while its tab is not showing */
   t_pad_map map;        /* working copy of the showing player, committed on Save */
   uint8     padtype;
-  int       key_fast_forward, key_rewind;  /* working copy */
-  int       pad_fast_forward, pad_rewind;  /* working copy */
   int       deadzone;   /* working copy, 0-100% */
   int       listen;
   int       listen_target;  /* which row listening is for, fixed at start */
   DWORD     listen_deadline;  /* GetTickCount() value; listening cancels itself past this */
+  char      notice[300];        /* what the last assignment displaced or collides with, shown as the hint */
   int       listen_shown_secs;  /* countdown value the hint currently shows, -1 forces a redraw */
   int       auto_advance;   /* set by Auto Assign only; Assign/double-click leave it off */
   HWND      dlg;
@@ -132,34 +134,22 @@ static void audio_set_slider(HWND dlg, int id, int text_id, int lo, int hi,
   SetDlgItemTextA(dlg, text_id, buf);
 }
 
-/* Fast forward/rewind are global hotkeys, not per-player pad buttons, so
-   they don't belong in t_pad_map -- shown as two extra rows appended
-   after the normal pad buttons, in both players' dialogs since it's the
-   same single global setting either way (changing it from Player 2's
-   dialog affects the same gui.key_fast_forward/key_rewind Player 1's
-   would). Reuses the exact same listen/assign/clear machinery via a
-   couple of special cases below rather than building a separate UI
-   section for them. */
-#define EXTRA_KEY_COUNT   2
-#define EXTRA_FASTFORWARD PAD_KEYS
-#define EXTRA_REWIND      (PAD_KEYS + 1)
-
 static int input_list_count(void)
 {
-  return PAD_KEYS + EXTRA_KEY_COUNT;
+  return PAD_KEYS;
 }
 
 static const char *input_list_entry_name(int sel)
 {
-  if (sel == EXTRA_FASTFORWARD) return "Fast Forward";
-  if (sel == EXTRA_REWIND)      return "Rewind";
   return input_button_label(sel);
 }
 
 /* The window is drawn 21% larger than the rest of the dialogs (10% twice). */
 #define IS(v) (TBS(v) * 121 / 100)
 
-#define INPUT_HINT_IDLE "Click a button (or its spot on the pad), then press the key or gamepad button you want. Right-click a button to clear it. Pressing a mapped key or button lights its spot."
+#define INPUT_HINT_BASE "Click a button (or its spot on the pad), then press the key or gamepad button you want. Right-click a button to clear it (A, B, C, X, Y and Z also offer Turbo, which fires the button repeatedly while it is held). Pressing a mapped key or button lights its spot."
+#define INPUT_HINT_TEST "Test mode: press any key or pad button and its spot lights on the pad. Keys no longer move around or press buttons in this window (Enter, Tab, Esc ...). Click Test Keys again to leave."
+#define INPUT_HINT_IDLE (inp.test ? INPUT_HINT_TEST : INPUT_HINT_BASE)
 
 /* Each mapping is a button on the controller picture's sides, with its name
    written beside it; the button shows what it is set to. */
@@ -172,16 +162,14 @@ static void input_fill_list(HWND dlg)
     char line[160];
     int key, button, dev;
 
-    /* Fast forward/rewind are always captured against Player 1's device
-       (see input_capture_tick() below), regardless of whose tab this is. */
-    if (i == EXTRA_FASTFORWARD)      { key = inp.key_fast_forward; button = inp.pad_fast_forward; dev = gui.pad[0].device; }
-    else if (i == EXTRA_REWIND)      { key = inp.key_rewind; button = inp.pad_rewind; dev = gui.pad[0].device; }
-    else                              { key = inp.map.key[i]; button = inp.map.button[i]; dev = inp.map.device; }
+    key = inp.map.key[i]; button = inp.map.button[i]; dev = inp.map.device;
 
     if (inp.listen != LISTEN_OFF && i == inp.listen_target)
       lstrcpyA(line, "Press a key or button...");
     else
       wsprintfA(line, "%s  /  %s", input_key_name(key), input_pad_button_name(dev, button));
+    if (i < PAD_KEYS && ((0x3F0u >> i) & 1u) && (inp.map.turbo & (1u << i)) && !(inp.listen != LISTEN_OFF && i == inp.listen_target))
+      lstrcatA(line, "  (Turbo)");
     SetDlgItemTextA(dlg, IDC_INPUT_LABEL_BASE + i, line);
   }
 }
@@ -354,7 +342,7 @@ static void input_set_listening(HWND dlg, int on)
 {
   static const int controls[] =
   {
-    IDC_INPUT_AUTOASSIGN, IDC_INPUT_DEFAULTS, IDC_INPUT_DEVICE, IDC_INPUT_PADTYPE, IDOK, IDCANCEL
+    IDC_INPUT_AUTOASSIGN, IDC_INPUT_DEFAULTS, IDC_INPUT_PADHK, IDC_INPUT_DEVICE, IDC_INPUT_PADTYPE, IDOK, IDCANCEL
   };
   int i;
 
@@ -408,6 +396,52 @@ static void input_set_listening(HWND dlg, int on)
    "wait for the current key/button to be released first" safety --
    without that, whatever's still physically held from the assignment
    just made could get immediately captured again as the next one. */
+/* A key or pad button was just given to pad button sel. Takes it off any other button of this player (and of the
+   other player, for keys, or a pad on the same device), and writes down what happened. A key that is also a shortcut,
+   or a pad button that is also a gamepad hotkey, is only mentioned. */
+/* Appends to the notice without ever running past its end (a key can sit on several buttons). */
+static void notice_add(char *n, const char *fmt, ...)
+{
+  char tmp[200];
+  va_list ap;
+
+  va_start(ap, fmt);
+  wvsprintfA(tmp, fmt, ap);
+  va_end(ap);
+  lstrcpynA(n + lstrlenA(n), tmp, (int)sizeof(inp.notice) - lstrlenA(n));
+}
+
+static void input_resolve_conflicts(int sel, int is_key, int value)
+{
+  char *n = inp.notice;
+  int j, o = 1 - inp.player;
+  const char *other;
+
+  wsprintfA(n, "%s is now on %s.", is_key ? input_key_name(value) : input_pad_button_name(inp.map.device, value), input_list_entry_name(sel));
+
+  for (j = 0; j < PAD_KEYS; j++)
+  {
+    if (j == sel) continue;
+    if (is_key ? inp.map.key[j] == value : inp.map.button[j] == value)
+    {
+      if (is_key) inp.map.key[j] = 0; else inp.map.button[j] = 0;
+      notice_add(n, " It was on %s: removed there.", input_list_entry_name(j));
+    }
+  }
+  for (j = 0; j < PAD_KEYS && (is_key || inp.other[o].map.device == inp.map.device); j++)
+  {
+    if (is_key ? inp.other[o].map.key[j] == value : inp.other[o].map.button[j] == value)
+    {
+      if (is_key) inp.other[o].map.key[j] = 0; else inp.other[o].map.button[j] = 0;
+      notice_add(n, " It was on Player %d %s: removed there.", o + 1, input_list_entry_name(j));
+    }
+  }
+  if (is_key && (other = hotkey_owner_of_key(value)) != NULL)
+    notice_add(n, " Note: it is also the shortcut \"%s\" (Input > Hotkeys).", other);
+  if (!is_key && inp.map.device >= 0 && inp.map.device < GUI_INPUT_XPAD_COUNT && (other = padhk_owner_of_button(value)) != NULL)
+    notice_add(n, " Note: it is also the gamepad hotkey \"%s\" (Controls > Gamepad Hotkeys).", other);
+}
+
 static void input_advance_or_stop(HWND dlg, int sel)
 {
   if (inp.auto_advance && sel + 1 < PAD_KEYS)   /* the pad buttons only, not the Fast Forward / Rewind hotkeys */
@@ -419,15 +453,14 @@ static void input_advance_or_stop(HWND dlg, int sel)
   else
   {
     input_set_listening(dlg, 0);
+    if (inp.notice[0]) SetDlgItemTextA(dlg, IDC_INPUT_HINT, inp.notice);
   }
 }
 
 static void input_clear(HWND dlg, int sel)
 {
   if (sel < 0 || sel >= input_list_count()) return;
-  if (sel == EXTRA_FASTFORWARD)      { inp.key_fast_forward = 0; inp.pad_fast_forward = 0; }
-  else if (sel == EXTRA_REWIND)      { inp.key_rewind = 0; inp.pad_rewind = 0; }
-  else                               { inp.map.key[sel] = 0; inp.map.button[sel] = 0; }
+  inp.map.key[sel] = 0; inp.map.button[sel] = 0;
   input_fill_list(dlg);
 }
 
@@ -478,20 +511,18 @@ static void input_capture_tick(HWND dlg)
   vk = input_capture_key();
   if (vk)
   {
-    if (sel == EXTRA_FASTFORWARD)      inp.key_fast_forward = vk;
-    else if (sel == EXTRA_REWIND)      inp.key_rewind = vk;
-    else                                inp.map.key[sel] = vk;
+    inp.map.key[sel] = vk;
+    input_resolve_conflicts(sel, 1, vk);
     input_fill_list(dlg);
     input_advance_or_stop(dlg, sel);
     return;
   }
 
-  button = input_capture_gamepad(sel >= PAD_KEYS ? gui.pad[0].device : inp.map.device);
+  button = input_capture_gamepad(inp.map.device);
   if (button)
   {
-    if (sel == EXTRA_FASTFORWARD)      inp.pad_fast_forward = button;
-    else if (sel == EXTRA_REWIND)      inp.pad_rewind = button;
-    else                                inp.map.button[sel] = button;
+    inp.map.button[sel] = button;
+    input_resolve_conflicts(sel, 0, button);
     input_fill_list(dlg);
     input_advance_or_stop(dlg, sel);
   }
@@ -630,7 +661,7 @@ static void input_read_controls(HWND dlg)
 /* The text of a name beside a button: "Up:", "A:" ... */
 static const char *input_label_text(int i)
 {
-  static char buf[PAD_KEYS + EXTRA_KEY_COUNT][32];
+  static char buf[PAD_KEYS][32];
   wsprintfA(buf[i], "%s:", input_list_entry_name(i));
   return buf[i];
 }
@@ -653,6 +684,7 @@ static HWND input_make(HWND dlg, const char *cls, const char *text, DWORD style,
   return c;
 }
 
+
 /* The whole window is built here, around the controller picture: the d-pad,
    Start and Mode on its left, the face buttons on its right, the hotkeys under
    it. */
@@ -665,7 +697,6 @@ static void input_build(HWND dlg)
   int M = IS(14), th = settings_tab_height() * 121 / 100;
   int cw = IS(720), colw = IS(170), bh = IS(36), pitch = IS(42);
   int nudge = IS(21);                      /* the right column sits a little in from the edge */
-  int hot_bottom;
   int y0 = th + M, ym = y0 + IS(40), i, y, picw, pich, picx, picy;
   RECT rc, wr;
   HWND tab;
@@ -676,7 +707,9 @@ static void input_build(HWND dlg)
     LOGFONTA lf;
     if (GetObjectA((HFONT)SendMessage(dlg, WM_GETFONT, 0, 0), sizeof(lf), &lf))
     {
-      lf.lfHeight = lf.lfHeight * 121 / 100;
+      /* Larger UI already makes the dialog font bigger; scaling it again looked heavy, so it is used as is. */
+      if (!gui.large_ui) lf.lfHeight = lf.lfHeight * 121 / 100;
+      lf.lfWeight = FW_NORMAL;
       inp.font = CreateFontIndirectA(&lf);
       if (inp.font) SendMessage(dlg, WM_SETFONT, (WPARAM)inp.font, FALSE);
     }
@@ -716,28 +749,18 @@ static void input_build(HWND dlg)
   picx = M + colw + IS(20);
   {
     int mid_y = ym + (5 * pitch + bh - pich) / 2;     /* the same middle as the two columns of buttons */
-    int gx;
     picy = mid_y - IS(18);
     SetRect(&inp.pic, picx, picy, picx + picw, picy + pich);
     if (inp.picture) DeleteObject(inp.picture);
     inp.picture = input_make_picture(picw, pich);
-
-    y = mid_y + pich + IS(6);
-    gx = picx + (picw - IS(230)) / 2 + IS(6);
-    input_add_label(input_label_text(EXTRA_FASTFORWARD), gx, y, IS(110), IS(16), DT_CENTER);
-    input_make(dlg, "BUTTON", "", bs, gx, y + IS(18), IS(110), IS(40), IDC_INPUT_LABEL_BASE + EXTRA_FASTFORWARD);
-    input_add_label(input_label_text(EXTRA_REWIND), gx + IS(120), y, IS(110), IS(16), DT_CENTER);
-    input_make(dlg, "BUTTON", "", bs, gx + IS(120), y + IS(18), IS(110), IS(40), IDC_INPUT_LABEL_BASE + EXTRA_REWIND);
-    hot_bottom = y + IS(58);
   }
 
   y = ym + 5 * pitch + bh;                       /* below the columns ... */
-  if (hot_bottom > y) y = hot_bottom;   /* ... and below the two hotkey buttons */
   y += IS(14);
   input_make(dlg, "STATIC", "Deadzone:", SS_LEFT, M, y + IS(4), IS(64), IS(16), IDC_INPUT_DEADZONE_LABEL);
   input_make(dlg, "msctls_trackbar32", "", TBS_HORZ | TBS_AUTOTICKS | WS_TABSTOP,
-             M + IS(70), y, IS(300), IS(26), IDC_INPUT_DEADZONE);
-  input_make(dlg, "STATIC", "", SS_LEFT, M + IS(378), y + IS(4), IS(44), IS(16), IDC_INPUT_DEADZONE_TEXT);
+             M + IS(70), y, IS(140), IS(26), IDC_INPUT_DEADZONE);
+  input_make(dlg, "STATIC", "", SS_LEFT, M + IS(218), y + IS(4), IS(44), IS(16), IDC_INPUT_DEADZONE_TEXT);
 
   y += IS(36);
   input_make(dlg, "STATIC", INPUT_HINT_IDLE, SS_LEFT, M, y, cw - 2 * M, IS(32), IDC_INPUT_HINT);
@@ -745,18 +768,19 @@ static void input_build(HWND dlg)
   y += IS(40);
   input_make(dlg, "BUTTON", "Restore Defaults", WS_TABSTOP | BS_PUSHBUTTON, M, y, IS(130), IS(24), IDC_INPUT_DEFAULTS);
   input_make(dlg, "BUTTON", "Auto Assign...", WS_TABSTOP | BS_PUSHBUTTON, M + IS(138), y, IS(120), IS(24), IDC_INPUT_AUTOASSIGN);
+  input_make(dlg, "BUTTON", "Test Keys", WS_TABSTOP | BS_AUTOCHECKBOX, M + IS(436), y + IS(2), IS(100), IS(20), IDC_INPUT_TEST);
+  input_make(dlg, "BUTTON", "Gamepad Hotkeys...", WS_TABSTOP | BS_PUSHBUTTON, M + IS(266), y, IS(160), IS(24), IDC_INPUT_PADHK);
   input_make(dlg, "BUTTON", "Save", WS_TABSTOP | BS_DEFPUSHBUTTON, cw - M - IS(168), y, IS(80), IS(24), IDOK);
   input_make(dlg, "BUTTON", "Cancel", WS_TABSTOP | BS_PUSHBUTTON, cw - M - IS(80), y, IS(80), IS(24), IDCANCEL);
 
   {
-    static const char *const how = " Click it, then press the key or gamepad button you want. Right-click to clear it.";
-    static char map_tip[14][200];
-    static const char *const what[14] =
+    static const char *const how = " Click it, then press the key or gamepad button you want. Right-click to clear it (A B C X Y Z: or to set Turbo).";
+    static char map_tip[PAD_KEYS][200];
+    static const char *const what[PAD_KEYS] =
     {
       "D-pad Up.", "D-pad Down.", "D-pad Left.", "D-pad Right.", "Button A.", "Button B.", "Button C.",
       "Button X (6-button pads).", "Button Y (6-button pads).", "Button Z (6-button pads).",
-      "The Start button.", "The Mode button (6-button pads).",
-      "Hold to run the game fast-forward.", "Hold to rewind the game (needs Enable Rewind)."
+      "The Start button.", "The Mode button (6-button pads)."
     };
     static const TipDef tips[] =
     {
@@ -765,22 +789,24 @@ static void input_build(HWND dlg)
       { IDC_INPUT_PADTYPE,  "Pad Type:", "Which Genesis pad this player has: match the game, or force a 2, 3 or 6 button pad." },
       { IDC_INPUT_DEADZONE, "Deadzone:", "How far a thumbstick has to move off-center before it registers at all." },
       { IDC_INPUT_AUTOASSIGN, NULL, "Go through the pad buttons one after another, pressing a key or button for each." },
+      { IDC_INPUT_TEST, NULL, "Try your keys: while ticked, the keyboard no longer moves around or presses buttons in this window, so you can press Enter, Tab, Esc and the arrows and see the pad spots light." },
       { IDC_INPUT_DEFAULTS, NULL, "Put this player's keys and buttons back to their defaults." },
+      { IDC_INPUT_PADHK, NULL, "Choose which gamepad button runs each shortcut: fast forward, rewind, slow motion, save and load state, previous and next slot." },
       { IDOK,               NULL, "Save the controls of both players." },
       { IDCANCEL,           NULL, "Close without saving." },
     };
-    TipDef all[8 + 14];
+    TipDef all[10 + PAD_KEYS];
     int k;
 
-    memcpy(all, tips, sizeof(tips));
-    for (k = 0; k < 14; k++)
+    memcpy(all, tips, sizeof(tips));   /* (10 entries) */
+    for (k = 0; k < PAD_KEYS; k++)
     {
       wsprintfA(map_tip[k], "%s%s", what[k], how);
-      all[8 + k].id = IDC_INPUT_LABEL_BASE + k;
-      all[8 + k].label = input_label_text(k);
-      all[8 + k].tip = map_tip[k];
+      all[10 + k].id = IDC_INPUT_LABEL_BASE + k;
+      all[10 + k].label = input_label_text(k);
+      all[10 + k].tip = map_tip[k];
     }
-    dlg_add_tips(dlg, all, 8 + 14);
+    dlg_add_tips(dlg, all, 10 + PAD_KEYS);
   }
 
   /* Size the window to that client area and center it on its owner. */
@@ -799,6 +825,17 @@ static void input_build(HWND dlg)
   }
 }
 
+/* In test mode every key press is taken before the dialog sees it, so Enter does not Save, Esc
+   does not Cancel and Tab does not move the focus. The pad spots light from the keys' real state
+   (GetAsyncKeyState), which this does not touch. */
+static HHOOK input_hook;
+
+static LRESULT CALLBACK input_key_hook(int code, WPARAM wp, LPARAM lp)
+{
+  if (code >= 0 && inp.test && inp.dlg && GetActiveWindow() == inp.dlg) return 1;
+  return CallNextHookEx(input_hook, code, wp, lp);
+}
+
 static INT_PTR CALLBACK input_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
 {
   switch (msg)
@@ -806,6 +843,7 @@ static INT_PTR CALLBACK input_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
     case WM_INITDIALOG:
     {
       inp.dlg = dlg;
+      input_hook = SetWindowsHookExA(WH_KEYBOARD, input_key_hook, NULL, GetCurrentThreadId());
       SetWindowTextA(dlg, "Controls");
       input_build(dlg);
       input_load_controls(dlg);
@@ -831,6 +869,8 @@ static INT_PTR CALLBACK input_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
       return TRUE;
 
     case WM_DESTROY:
+      if (input_hook) { UnhookWindowsHookEx(input_hook); input_hook = NULL; }
+      inp.test = 0;
       if (inp.picture) { DeleteObject(inp.picture); inp.picture = NULL; }
       if (inp.font) { DeleteObject(inp.font); inp.font = NULL; }
       return FALSE;
@@ -882,7 +922,24 @@ static INT_PTR CALLBACK input_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
     {
       int id = GetDlgCtrlID((HWND)wp);
       if (id >= IDC_INPUT_LABEL_BASE && id < IDC_INPUT_LABEL_BASE + input_list_count() && inp.listen == LISTEN_OFF)
-        input_clear(dlg, id - IDC_INPUT_LABEL_BASE);
+      {
+        int b = id - IDC_INPUT_LABEL_BASE;
+        if (b < PAD_KEYS && ((0x3F0u >> b) & 1u))
+        {
+          HMENU m = CreatePopupMenu();
+          POINT pt;
+          int cmd;
+          GetCursorPos(&pt);
+          if (lp != (LPARAM)-1) { pt.x = (short)LOWORD(lp); pt.y = (short)HIWORD(lp); }
+          AppendMenuA(m, MF_STRING | (((inp.map.turbo >> b) & 1u) ? MF_CHECKED : 0), 1, "Turbo");
+          AppendMenuA(m, MF_STRING, 2, "Clear");
+          cmd = (int)TrackPopupMenu(m, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN, pt.x, pt.y, 0, dlg, NULL);
+          DestroyMenu(m);
+          if (cmd == 1) { inp.map.turbo ^= (1u << b); input_fill_list(dlg); }
+          else if (cmd == 2) input_clear(dlg, b);
+        }
+        else input_clear(dlg, b);
+      }
       return TRUE;
     }
 
@@ -943,6 +1000,18 @@ static INT_PTR CALLBACK input_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
           if (HIWORD(wp) == CBN_SELCHANGE) input_update_identify_hint(dlg);
           return TRUE;
 
+        case IDC_INPUT_TEST:
+          if (HIWORD(wp) == BN_CLICKED)
+          {
+            inp.test = (SendDlgItemMessage(dlg, IDC_INPUT_TEST, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            if (inp.listen == LISTEN_OFF) SetDlgItemTextA(dlg, IDC_INPUT_HINT, INPUT_HINT_IDLE);
+          }
+          return TRUE;
+
+        case IDC_INPUT_PADHK:
+          if (HIWORD(wp) == BN_CLICKED && inp.listen == LISTEN_OFF) dlg_pad_hotkeys(dlg);
+          return TRUE;
+
         case IDC_INPUT_AUTOASSIGN:
           input_read_controls(dlg);
           inp.sel = 0;
@@ -965,10 +1034,6 @@ static INT_PTR CALLBACK input_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
           set_config_defaults();
           inp.map = gui.pad[inp.player];
           inp.padtype = config.input[inp.player].padtype;
-          inp.key_fast_forward = gui.key_fast_forward;
-          inp.key_rewind = gui.key_rewind;
-          inp.pad_fast_forward = gui.pad_fast_forward;
-          inp.pad_rewind = gui.pad_rewind;
           inp.deadzone = gui.deadzone[inp.player];
 
           gui = saved_gui;
@@ -993,10 +1058,6 @@ static INT_PTR CALLBACK input_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
             config.input[p].padtype = inp.other[p].padtype;
             gui.deadzone[p] = inp.other[p].deadzone;
           }
-          gui.key_fast_forward = inp.key_fast_forward;
-          gui.key_rewind = inp.key_rewind;
-          gui.pad_fast_forward = inp.pad_fast_forward;
-          gui.pad_rewind = inp.pad_rewind;
           EndDialog(dlg, IDOK);
           return TRUE;
         }
@@ -1042,10 +1103,6 @@ void dlg_input(HWND parent, int player)
   }
   inp.map     = gui.pad[player];
   inp.padtype = config.input[player].padtype;
-  inp.key_fast_forward = gui.key_fast_forward;
-  inp.key_rewind = gui.key_rewind;
-  inp.pad_fast_forward = gui.pad_fast_forward;
-  inp.pad_rewind = gui.pad_rewind;
   inp.deadzone = gui.deadzone[player];
 
   if (gui_dialog_box(gui.large_ui ? IDD_INPUT_LARGE : IDD_INPUT, parent, input_proc) == IDOK)
@@ -1468,42 +1525,30 @@ static INT_PTR CALLBACK shortcuts_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
         SendDlgItemMessage(dlg, IDC_SHORTCUTS_TEXT, EM_SETTABSTOPS, 1, (LPARAM)tabs);
       }
 
-      SetDlgItemTextA(dlg, IDC_SHORTCUTS_TEXT,
-        "KEYBOARD (PLAYER 1 DEFAULTS)\r\n"
-        "Pad Button\tKey\r\n"
-        "D-pad\tArrow keys\r\n"
-        "A B C\tZ X C\r\n"
-        "X Y Z\tA S D\r\n"
-        "Start\tEnter\r\n"
-        "Mode\tRight Shift\r\n"
-        "\r\n"
-        "A connected gamepad works without setup. Change any of the pad\r\n"
-        "bindings under Input > Controls.\r\n"
-        "\r\n"
-        "SHORTCUTS\r\n"
-        "Action\tShortcut\r\n"
-        "Open a ROM\tCtrl+O\r\n"
-        "ROMs Directory\tCtrl+B\r\n"
-        "Close the ROM\tCtrl+W\r\n"
-        "Reset\tCtrl+R\r\n"
-        "Hard Reset\tCtrl+Shift+R\r\n"
-        "Cheats\tCtrl+C\r\n"
-        "Search the Game List\tCtrl+F\r\n"
-        "Toggle Favorite (selected game)\tCtrl+D\r\n"
-        "Pause and Resume\tF2 / Pause\r\n"
-        "Stop the ROM\tF3\r\n"
-        "Save to the Current Slot\tF5\r\n"
-        "Load from the Current Slot\tF8\r\n"
-        "Previous / Next Slot\tF6 / F7\r\n"
-        "Undo Load State\tF9\r\n"
-        "Save a Screenshot\tF12\r\n"
-        "Record Video + Audio (Start / Stop)\tShift+F11\r\n"
-        "Record Audio Only (Start / Stop)\tCtrl+F11\r\n"
-        "Stop Recording\tAlt+F11\r\n"
-        "Toggle Fullscreen\tAlt+Enter / Esc\r\n"
-        "Fast Forward\tTab (Hold)\r\n"
-        "Rewind\tBackspace (Hold)\r\n"
-        "Advance One Frame While Paused\t\\");
+      {
+        char text[4096], keys[2048];
+
+        lstrcpyA(text,
+          "KEYBOARD (PLAYER 1 DEFAULTS)\r\n"
+          "Pad Button\tKey\r\n"
+          "D-pad\tArrow keys\r\n"
+          "A B C\tZ X C\r\n"
+          "X Y Z\tA S D\r\n"
+          "Start\tEnter\r\n"
+          "Mode\tRight Shift\r\n"
+          "\r\n"
+          "A connected gamepad works without setup. Change any of the pad\r\n"
+          "bindings under Input > Controls.\r\n"
+          "\r\n"
+          "SHORTCUTS (change them under Input > Hotkeys)\r\n"
+          "Action\tShortcut\r\n");
+        hotkeys_describe(keys, sizeof(keys));
+        lstrcatA(text, keys);
+        lstrcatA(text,
+          "Save to a Slot\tShift+0 .. 9\r\n"
+          "Load from a Slot\t0 .. 9");
+        SetDlgItemTextA(dlg, IDC_SHORTCUTS_TEXT, text);
+      }
       return TRUE;
 
     case WM_CTLCOLORDLG:
@@ -1538,13 +1583,13 @@ void dlg_shortcuts(HWND parent)
 }
 
 static const char menu_guide_text[] =
-  "Every menu in one page. Keyboard shortcuts are in brackets.\r\n"
+  "Every menu in one page. Keyboard shortcuts are in brackets (the original keys; Input > Hotkeys changes them).\r\n"
   "\r\n"
   "FILE\r\n"
   "  Open ROM... (Ctrl+O):\r\n"
   "   Pick a game file to play: Mega Drive / Genesis, Master System, Game Gear, SG-1000, Mega CD, or a .zip / .7z / .gz that holds one.\r\n"
   "\r\n"
-  "  ROMs Directory... (Ctrl+B):\r\n"
+  "  ROMs Directory... (Ctrl+R):\r\n"
   "   Shows the game browser for a folder of games. Double-click a game to play it, right-click for more choices (play with a saved state, cheats, cover image).\r\n"
   "\r\n"
   "  Recent Files:\r\n"
@@ -1554,7 +1599,7 @@ static const char menu_guide_text[] =
   "   Stops the game.\r\n"
   "\r\n"
   "  ROM Information...:\r\n"
-  "   Details about the loaded game.\r\n"
+  "   The game's name, console, genre, favorite state, file size and location, the CRC32, the cartridge header (console name, type, titles, product code, region, copyright, supported controllers, save RAM), and the ROM size and checksum.\r\n"
   "\r\n"
   "  Open Genesis Plus Folder:\r\n"
   "   Opens the program folder: settings, saves, states, screenshots, recordings, cheats, covers and BIOS files.\r\n"
@@ -1566,33 +1611,39 @@ static const char menu_guide_text[] =
   "  Pause (F2 / Pause), Stop (F3):\r\n"
   "   Freeze the game, or end it.\r\n"
   "\r\n"
-  "  Reset (Ctrl+R), Hard Reset (Ctrl+Shift+R):\r\n"
+  "  Reset (F4), Hard Reset (Ctrl+F4):\r\n"
   "   Reset is the console's reset button. Hard Reset power-cycles the console (saved game data is kept).\r\n"
   "\r\n"
-  "  Save State (F5), Load State (F8):\r\n"
-  "   Save or restore the exact moment in the current slot.\r\n"
+  "  Load State:\r\n"
+  "   Load State from Selected Slot (F8) restores the exact moment saved in the selected slot. Load State from Slot loads any of the slots 0-9 directly, whichever is selected (empty slots are greyed). Undo Load State (Ctrl+F8) puts the game back as it was just before the last load; one level, cleared when the game is closed.\r\n"
   "\r\n"
-  "  Save Slot:\r\n"
-  "   Choose slot 0-9 (F6 / F7 = previous / next). Each entry shows when the slot was last saved.\r\n"
+  "  Save State:\r\n"
+  "   Save State to Selected Slot (F5) saves the exact moment into the selected slot. Save State to Slot saves into any of the slots 0-9 directly. Undo Save State puts the slot back as it was before the last save (or empties it if it was empty); one level, cleared when the game is closed.\r\n"
+  "\r\n"
+  "  Select State Slot:\r\n"
+  "   Choose slot 0-9 for F5 / F8 (F6 / F7 = previous / next). Each entry shows when the slot was last saved.\r\n"
   "\r\n"
   "  Manage States...:\r\n"
   "   Thumbnails of all ten slots: left-click loads one, right-click saves or deletes.\r\n"
   "\r\n"
   "  Enable Rewind (Backspace, Hold):\r\n"
-  "   Keeps a history of recent play so holding Backspace runs it backwards. Uses about 200 MB and some CPU while on; not available during netplay.\r\n"
-  "\r\n"
-  "  Undo Load State (F9):\r\n"
-  "   Puts the game back as it was just before the last state load.\r\n"
+  "   Keeps a history of recent play so holding Backspace runs it backwards. Uses about 200 MB and some CPU while on; switch it off if you never rewind. Not available during netplay.\r\n"
   "\r\n"
   "  Pause When Inactive:\r\n"
   "   Pauses the game while another window has focus.\r\n"
+  "\r\n"
+  "  Auto Resume:\r\n"
+  "   Saves the game when you close it (or quit) and, the next time you open that game, asks whether to carry on from there. The question has a \"Do not ask again\" box that remembers your answer; the Restore Dialog button next to Auto Resume in Settings brings it back. It uses a state of its own, so your ten save slots are untouched.\r\n"
+  "\r\n"
+  "  Slow Motion:\r\n"
+  "   Runs the game at half speed (the sound slows down with it). To step one frame at a time, pause and press the Advance One Frame key, \\ by default.\r\n"
   "\r\n"
   "VIEW\r\n"
   "  View Mode:\r\n"
   "   List View or Grid View: how the game browser shows your games.\r\n"
   "\r\n"
   "  List Columns:\r\n"
-  "   Choose which columns the list view shows: Favorite (a star: click it to mark a game as a favorite), Console, Folder and Size (Name is always shown). Right-clicking the column header does the same.\r\n"
+  "   Choose which columns the list view shows: Favorite (a star: click it to mark a game as a favorite), and Console (Name is always shown), and Genre (shown after Console, hidden at first). Click a column's title to sort by it (View > Show Recently Played shows what you played last). Right-clicking the column header does the same. The choices are greyed out while the grid view is shown.\r\n"
   "\r\n"
   "  Theme:\r\n"
   "   System (follow Windows), Light or Dark.\r\n"
@@ -1600,11 +1651,21 @@ static const char menu_guide_text[] =
   "  Larger UI:\r\n"
   "   Bigger menus and dialogs.\r\n"
   "\r\n"
-  "  Show Toolbar, Show Search Bar, Show Filter Bar:\r\n"
-  "   Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, play, stop, reset, pause, switch fullscreen, screenshot, settings, the Video and Audio settings tabs and the player controls; a star button next to Refresh shows only your favorites. The toolbar stays above the game while it runs in a window; in fullscreen it slides in at the top edge of the screen together with the menu bar (the picture makes room for it) (View > Toolbar in Fullscreen switches that on; it is off to start with). The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, genre (looked up from the game's title in a table built into the program; a game that is not in it is listed as Unknown) and region (read from tags such as (USA) in the file name).\r\n"
+  "  Show Toolbar, Show Search Bar (Ctrl+F), Show Filter Bar:\r\n"
+  "   Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, favorites only, play, pause, stop, reset, switch fullscreen, screenshot, settings, the Video and Audio settings tabs and the player controls; a star button next to Refresh shows only your favorites. The toolbar stays above the game while it runs in a window; in fullscreen it slides in at the top edge of the screen together with the menu bar (the picture makes room for it) (View > Toolbar in Fullscreen switches that on; it is off to start with). The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, genre (looked up from the game's title in a table built into the program; a game that is not in it is listed as Unknown) and region (read from tags such as (USA) in the file name).\r\n"
   "\r\n"
-  "  Show Favorites Only, Toggle Favorite (Ctrl+D, no menu item):\r\n"
-  "   Mark the selected game as a favorite (or click its star in the Favorite column; the right-click menu has Add To Favorites too). Show Favorites Only, or the star on the toolbar, hides every other game. Sorting by the Favorite column puts your favorites first.\r\n"
+  "  Toolbar in Fullscreen:\r\n"
+  "   In fullscreen, shows the toolbar together with the menu bar when the mouse touches the top edge of the screen.\r\n"
+  "\r\n"
+  "  Show Favorites Only:\r\n"
+  "   Mark a game as a favorite by clicking its star in the Favorite column (the right-click menu has Add To Favorites too). Show Favorites Only, or the star on the toolbar, hides every other game. Sorting by the Favorite column puts your favorites first.\r\n"
+  "\r\n"
+  "  Show Recently Played:\r\n"
+  "   Shows the last few games you opened as a group at the top of the list, above all the others. Choose it again to switch it off.\r\n"
+  "\r\n"
+  "  Clean Game Names:\r\n"
+  "   The game list shows \"Sonic The Hedgehog\" instead of \"Sonic The Hedgehog (USA, Europe) [!].md\". Only the list changes, not the files.\r\n"
+  "\r\n"
   "  Reset Window Size:\r\n"
   "   Puts the window back at the size chosen under Video > Window Size.\r\n"
   "\r\n"
@@ -1625,7 +1686,7 @@ static const char menu_guide_text[] =
   "   Runs a librashader (.slangp) GPU shader chain on top of the picture, Direct3D 11 only, and 64-bit exe only (the 32-bit exe has no Shaders menu); librashader.dll ships with the exe (see the README).\r\n"
   "\r\n"
   "  Visual Effects:\r\n"
-  "   Smooth Scaling (soft edges when enlarged), Brighten (a gentle brightness lift), LCD Ghosting (bright pixels fade slowly, like a handheld screen).\r\n"
+  "   Smooth Scaling (soft edges when enlarged), Integer Scaling (enlarges the picture by whole multiples only, 1x, 2x, 3x ..., so every pixel is the same size; it is centered, with borders, when the window is between two sizes, and follows the Aspect Ratio setting for the shape of the pixels), Brighten (a gentle brightness lift), LCD Ghosting (bright pixels fade slowly, like a handheld screen).\r\n"
   "\r\n"
   "  Scanlines:\r\n"
   "   Dark lines between rows: Off, 25, 50, 75 or 100 %.\r\n"
@@ -1645,20 +1706,23 @@ static const char menu_guide_text[] =
   "  Frameskip:\r\n"
   "   Skips drawing some frames on a slow PC (Off, Auto, or Manual by audio-buffer level). Not used during netplay or recording.\r\n"
   "\r\n"
-  "  Renderer:\r\n"
-  "   GDI draws with the CPU; Direct3D 9 and Direct3D 11 use the graphics card instead (each falls back to GDI automatically if it isn't available). Direct3D 11 is what a GPU shader tool such as librashader needs.\r\n"
-  "\r\n"
   "  VSync:\r\n"
   "   Wait for the screen's refresh after each frame so motion is even. Works with any renderer; it is skipped for a frame whenever the sound buffer runs low, so it never causes crackle. Off by default.\r\n"
   "\r\n"
+  "  Renderer:\r\n"
+  "   GDI draws with the CPU; Direct3D 9 and Direct3D 11 use the graphics card instead (each falls back to GDI automatically if it isn't available). Direct3D 11 is what a GPU shader tool such as librashader needs.\r\n"
+  "\r\n"
   "AUDIO\r\n"
-  "  Mute:\r\n"
+  "  Mute (Ctrl+M):\r\n"
   "   Silences the sound; untick to hear it again.\r\n"
+  "\r\n"
+  "  Mute FM Sound (Ctrl+N), Mute PSG Sound (Ctrl+B):\r\n"
+  "   Silence the FM chip (the main music) or the PSG chip (the square-wave sound) on its own, without touching the saved levels.\r\n"
   "\r\n"
   "  Levels and Latency...:\r\n"
   "   Master volume, FM and PSG levels, CD audio, and how many frames of sound are buffered.\r\n"
   "\r\n"
-  "  Advanced...:\r\n"
+  "  Advanced Audio...:\r\n"
   "   Audio filter (Off, Low-Pass or a 3-Band EQ) and its settings, High-Quality FM, Master System FM unit and chip, and Sega CD PCM volume.\r\n"
   "\r\n"
   "  FM Chip:\r\n"
@@ -1672,7 +1736,10 @@ static const char menu_guide_text[] =
   "\r\n"
   "INPUT\r\n"
   "  Controls...:\r\n"
-  "   One window with a tab for Player 1 and one for Player 2, laid out around a picture of the pad. Click a button, then press the key or gamepad button you want (right-click a button to clear it; clicking its spot on the picture works too). Auto Assign goes through them all in turn. Pressing a mapped key or gamepad button lights its spot on the picture, so you can check a pad. Set keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.\r\n"
+  "   One window with a tab for Player 1 and one for Player 2, laid out around a picture of the pad. Click a button, then press the key or gamepad button you want (right-click a button to clear it; clicking its spot on the picture works too). Right-click A, B, C, X, Y or Z to turn Turbo on for it: held down, it then fires repeatedly. A key or button can only be on one pad button: assigning it takes it off the one that had it (also on the other player, for keys), and a line under the pad says what was removed, and when the key is also a shortcut or the pad button also a gamepad hotkey. Auto Assign goes through them all in turn. Pressing a mapped key or gamepad button lights its spot on the picture, so you can check a pad; tick Test Keys to try keys such as Enter, Tab and Esc without them operating the window. Set keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). The right stick counts as four more buttons (Right Stick Up, Down, Left, Right) that can be assigned like any other; this works for XInput pads and, where the pad reports the stick on its Rx / Ry or Z / Rz axes, for DirectInput ones. Gamepad Hotkeys... opens a window to choose which pad button runs each shortcut, pressed on its own (no Back needed): Fast Forward and Rewind (held), Slow Motion, Save State and Load State (current slot), and Previous and Next Slot. By default the right stick does the last four (up = save, down = load, left = previous slot, right = next slot) and LB / LT are Fast Forward / Rewind. A button used there also reaches the game, so the right stick is a good choice. Xbox-style (XInput) pad of Player 1 only. Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.\r\n"
+  "\r\n"
+  "  Hotkeys...:\r\n"
+  "   Every keyboard shortcut in one list: select an action, click Assign (or double-click it) and press the key you want, alone or with Ctrl, Shift or Alt. A key can only be on one action: the old one loses it. Clear removes a shortcut and Restore Defaults brings the original keys back. The menu labels and the Keyboard Shortcuts window follow your choices. Fast Forward and Rewind (the keys you hold, Tab and Backspace by default) are in the list too; their gamepad buttons are under Controls > Gamepad Hotkeys.\r\n"
   "\r\n"
   "  Port A / Port B Device:\r\n"
   "   What is plugged in: Control Pad, Mouse, a light gun (Light Phaser, Menacer or Justifier, depending on the port), XE-1AP analog joystick, Activator, Paddle Control, Sports Pad, Graphic Board (Pico's drawing tablet), or a 4-player Team Player adapter -- not every device is on both ports.\r\n"
@@ -1726,6 +1793,9 @@ static const char menu_guide_text[] =
   "\r\n"
   "  Show Frame Rate:\r\n"
   "   Frames per second on screen.\r\n"
+  "\r\n"
+  "  Show On-Screen Messages:\r\n"
+  "   Short messages over the picture, such as \"Saved to slot 3\" or the name of a screenshot. Untick to hide them (the status bar still shows them).\r\n"
   "\r\n"
   "HELP\r\n"
   "  Keyboard Shortcuts (F1):\r\n"
@@ -1944,7 +2014,7 @@ static INT_PTR CALLBACK rominfo_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
     case WM_INITDIALOG:
       theme_apply_to_window(dlg);
       {
-        char text[2048];
+        char text[4096];
         char domestic[50], international[50], product[14], romtype_str[4],
              country[18], copyright[18];
         uint32 rom_size;
@@ -1961,34 +2031,87 @@ static INT_PTR CALLBACK rominfo_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
 
         rom_size = rominfo.romend - rominfo.romstart + 1;
 
-        wsprintfA(text,
-          "File:\t%s\r\n"
-          "System:\t%s\r\n"
-          "\r\n"
-          "Domestic title:\t%s\r\n"
-          "International title:\t%s\r\n"
-          "\r\n"
-          "Product code:\t%s\r\n"
-          "Region:\t%s\r\n"
-          "Copyright:\t%s\r\n"
-          "\r\n"
-          "ROM size:\t%lu KB\r\n"
-          "Header checksum:\t%04X\r\n"
-          "Calculated checksum:\t%04X %s\r\n",
-          emu_rom_filename()[0] ? emu_rom_filename() : "(unknown)",
-          system_name(),
-          domestic[0] ? domestic : "(none)",
-          international[0] ? international : "(none)",
-          product[0] ? product : "(none)",
-          country[0] ? country : "(none)",
-          copyright[0] ? copyright : "(none)",
-          (unsigned long)(rom_size / 1024),
-          rominfo.checksum,
-          rominfo.realchecksum,
-          (rominfo.checksum == rominfo.realchecksum) ? "(match)" : "(mismatch)");
+        {
+          char genre[40] = "", sizebuf[40] = "", console_hdr[20], devs[160] = "", ramtxt[40], crctxt[16], typetxt[32];
+          static const char *const dev_names[15] = { "3-Button Pad", "6-Button Pad", "Keyboard", "Printer", "Control Ball",
+            "Floppy Drive", "Activator", "Team Player", "MS Joypad", "RS232C Serial", "Tablet", "Paddle", "CD-ROM", "Mega Mouse", "Menacer" };
+          int d;
+          WIN32_FILE_ATTRIBUTE_DATA fa;
+          const char *path = emu_rom_path();
+
+          if (path[0])
+          {
+            browser_genre_for(path, genre, sizeof(genre));
+            if (GetFileAttributesExA(path, GetFileExInfoStandard, &fa))
+              wsprintfA(sizebuf, "%lu KB", (unsigned long)((fa.nFileSizeLow + 1023) / 1024));
+          }
+
+          lstrcpynA(console_hdr, rominfo.consoletype, sizeof(console_hdr));
+          for (d = lstrlenA(console_hdr); d > 0 && console_hdr[d - 1] == ' '; d--) console_hdr[d - 1] = '\0';
+          for (d = 0; d < 15; d++)
+            if (rominfo.peripherals & (1u << d))
+            {
+              if (devs[0]) lstrcatA(devs, ", ");
+              lstrcatA(devs, dev_names[d]);
+            }
+          if (!strncmp(rominfo.ROMType, "GM", 2))      lstrcpyA(typetxt, "Game");
+          else if (!strncmp(rominfo.ROMType, "AL", 2)) lstrcpyA(typetxt, "Educational program");
+          else if (!strncmp(rominfo.ROMType, "BR", 2)) lstrcpyA(typetxt, "Boot ROM");
+          else typetxt[0] = '\0';
+          if (sram.detected && sram.end >= sram.start)
+            wsprintfA(ramtxt, "Yes (%lu KB)", (unsigned long)((sram.end - sram.start + 1 + 1023) / 1024));
+          else lstrcpyA(ramtxt, "No");
+          wsprintfA(crctxt, "%08lX", (unsigned long)crc32(0L, (const Bytef *)cart.rom, (uInt)cart.romsize));
+
+          wsprintfA(text,
+            "GAME\r\n"
+            "Name:\t%s\r\n"
+            "Console:\t%s\r\n"
+            "Genre:\t%s\r\n"
+            "Favorite:\t%s\r\n"
+            "File size:\t%s\r\n"
+            "CRC32:\t%s\r\n"
+            "Location:\t%s\r\n"
+            "\r\n"
+            "CARTRIDGE HEADER\r\n"
+            "Console name:\t%s\r\n"
+            "Type:\t%s\r\n"
+            "Domestic title:\t%s\r\n"
+            "International title:\t%s\r\n"
+            "Product code:\t%s\r\n"
+            "Region:\t%s\r\n"
+            "Copyright:\t%s\r\n"
+            "Controllers:\t%s\r\n"
+            "Save RAM:\t%s\r\n"
+            "\r\n"
+            "ROM\r\n"
+            "ROM size:\t%lu KB\r\n"
+            "Header checksum:\t%04X\r\n"
+            "Calculated checksum:\t%04X %s\r\n",
+            emu_rom_filename()[0] ? emu_rom_filename() : "(unknown)",
+            system_name(),
+            genre[0] ? genre : "(unknown)",
+            path[0] && config_fav_has(path) ? "Yes" : "No",
+            sizebuf[0] ? sizebuf : "(unknown)",
+            crctxt,
+            path[0] ? path : "(unknown)",
+            console_hdr[0] ? console_hdr : "(none)",
+            typetxt[0] ? typetxt : "(none)",
+            domestic[0] ? domestic : "(none)",
+            international[0] ? international : "(none)",
+            product[0] ? product : "(none)",
+            country[0] ? country : "(none)",
+            copyright[0] ? copyright : "(none)",
+            devs[0] ? devs : "(none)",
+            ramtxt,
+            (unsigned long)(rom_size / 1024),
+            rominfo.checksum,
+            rominfo.realchecksum,
+            (rominfo.checksum == rominfo.realchecksum) ? "(match)" : "(mismatch)");
+        }
 
         {
-          int tabs[1] = { 100 };
+          int tabs[1] = { 80 };
           SendDlgItemMessage(dlg, IDC_ROMINFO_TEXT, EM_SETTABSTOPS, 1, (LPARAM)tabs);
         }
         SetDlgItemTextA(dlg, IDC_ROMINFO_TEXT, text);
@@ -2400,6 +2523,23 @@ static INT_PTR CALLBACK netplay_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
       wsprintfA(buf, "Your address on this network: %s", netplay_local_addresses()[0] ? netplay_local_addresses() : "(unknown)");
       SetDlgItemTextA(dlg, IDC_NP_MYADDR, buf);
       np_dlg_status(dlg, "Both players must load the same ROM and use the same Genesis Plus.exe.");
+      {
+        static const GuiTip tips[] =
+        {
+          { IDC_NP_HOST_PORT, NULL, "The port this game listens on. The other player joins this port." },
+          { IDC_NP_DELAY, "Input Delay:", "Frames of input delay: more is smoother on a slow network, fewer feels more immediate." },
+          { IDC_NP_HOST_CODE, "Session Code (Optional):", "A code the other player has to type to join. Leave it empty to let anyone join." },
+          { IDC_NP_HOST, NULL, "Wait for another player to join this game." },
+          { IDC_NP_LIST, NULL, "Hosts found on your network. Pick one to fill in its address." },
+          { IDC_NP_FIND, NULL, "Look for hosts on your local network." },
+          { IDC_NP_ADDR, "Address:", "The address of the host to join." },
+          { IDC_NP_PORT, NULL, "The port the host is listening on." },
+          { IDC_NP_JOIN_CODE, "Code:", "The session code, if the host set one." },
+          { IDC_NP_JOIN, NULL, "Join the host at this address." },
+          { IDCANCEL, NULL, "Close this window." },
+        };
+        gui_dialog_tips(dlg, tips, (int)(sizeof(tips) / sizeof(tips[0])));
+      }
       return TRUE;
     }
 

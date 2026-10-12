@@ -51,6 +51,7 @@ static void set_pad_defaults(int player)
   t_pad_map *p = &gui.pad[player];
   int i;
 
+  p->turbo = 0;
   for (i = 0; i < PAD_KEYS; i++)
   {
     p->key[i] = 0;
@@ -163,12 +164,12 @@ void set_config_defaults(void)
   gui.np_delay            = 2;
   gui.np_addr[0]          = '\0';
   gui.browser_col_hidden  = 0;
+  gui.browser_col_extra   = 0;
+  gui.clean_names         = 0;
   gui.browser_sort_column = 0;   /* Name */
   gui.browser_sort_ascending = 1;
-  gui.browser_col_pct[0] = 40;
-  gui.browser_col_pct[1] = 25;
-  gui.browser_col_pct[2] = 22;
-  gui.browser_col_pct[3] = 13;
+  gui.browser_col_pct[0] = 64;
+  gui.browser_col_pct[1] = 36;
   gui.renderer            = RENDERER_D3D11;
   gui.vsync               = 0;
   gui.theme_mode          = 0;   /* THEME_AUTO */
@@ -179,10 +180,6 @@ void set_config_defaults(void)
   gui.hide_searchbar      = 1;   /* the search bar and the filter bar start switched off */
   gui.hide_filterbar      = 1;
   gui.browser_grid_size   = 96;
-  gui.key_fast_forward    = VK_TAB;
-  gui.key_rewind          = VK_BACK;
-  gui.pad_fast_forward    = XPAD_LEFT_SHOULDER;
-  gui.pad_rewind          = XPAD_LEFT_TRIGGER;
   gui.deadzone[0]         = 30;   /* close to this app's own prior fixed threshold (XPAD_DEADZONE
                                       10000 out of a possible 32767, about 30%), so upgrading
                                       changes nothing by default -- only touching the slider does */
@@ -191,7 +188,20 @@ void set_config_defaults(void)
   gui.fullscreen_on_load  = 0;
   gui.show_fps            = 0;
   gui.favorites_only      = 0;
+  gui.recent_mode         = 0;
   gui.fullscreen_toolbar  = 0;
+  gui.integer_scale       = 0;
+  { int k; for (k = 0; k < padhk_count(); k++) gui.padhk[k] = padhk_default(k); }
+  gui.slowmo              = 0;
+  {
+    int k;
+    for (k = 0; k < hotkeys_count(); k++) gui.hotkey[k] = hotkey_default(k);
+  }
+  gui.mute_fm             = 0;
+  gui.mute_psg            = 0;
+  gui.autosave            = 0;
+  gui.resume_choice       = 0;
+  gui.osd                 = 1;
 
   /*
    * Sentinel for "never saved". GetPrivateProfileIntA is documented to
@@ -387,12 +397,28 @@ void config_load(void)
   gui.np_delay   = clampi(ini_get("netplay", "delay", gui.np_delay), 1, 4);
   ini_get_str("netplay", "address", gui.np_addr, sizeof(gui.np_addr));
   gui.browser_col_hidden = ini_get("video", "browser_col_hidden", gui.browser_col_hidden);
-  gui.browser_sort_column = clampi(ini_get("video", "browser_sort_column", gui.browser_sort_column), 0, 3);
+  gui.browser_col_extra = ini_get("video", "browser_col_extra", gui.browser_col_extra) & 1;   /* Genre only */
+  gui.clean_names = ini_get("general", "clean_names", gui.clean_names) ? 1 : 0;
+  gui.browser_sort_column = ini_get("video", "browser_sort_column", gui.browser_sort_column);
+  if (ini_get("video", "browser_layout_rev", 0) < 2)
+  {
+    /* The Folder and Size columns are gone: Favorite and Genre moved up (were 4 and 5), and the
+       column widths start over. */
+    int old_hidden = gui.browser_col_hidden;
+    gui.browser_col_hidden = (old_hidden & 2) | ((old_hidden & 16) ? 4 : 0);   /* Console, Favorite */
+    switch (gui.browser_sort_column)
+    {
+      case 4: gui.browser_sort_column = 2; break;
+      case 5: gui.browser_sort_column = 3; break;
+      case 0: case 1: break;
+      default: gui.browser_sort_column = 0; break;
+    }
+  }
+  if (gui.browser_sort_column < 0 || gui.browser_sort_column > 3) gui.browser_sort_column = 0;
   gui.browser_sort_ascending = ini_get("video", "browser_sort_ascending", gui.browser_sort_ascending) ? 1 : 0;
   gui.browser_col_pct[0] = clampi(ini_get("video", "browser_col0_pct", gui.browser_col_pct[0]), 5, 90);
   gui.browser_col_pct[1] = clampi(ini_get("video", "browser_col1_pct", gui.browser_col_pct[1]), 5, 90);
-  gui.browser_col_pct[2] = clampi(ini_get("video", "browser_col2_pct", gui.browser_col_pct[2]), 5, 90);
-  gui.browser_col_pct[3] = clampi(ini_get("video", "browser_col3_pct", gui.browser_col_pct[3]), 5, 90);
+  if (ini_get("video", "browser_layout_rev", 0) < 2) { gui.browser_col_pct[0] = 64; gui.browser_col_pct[1] = 36; }   /* old widths belonged to other columns */
   {
     /* "renderer" is the current key; an existing settings file from before
        this had three choices only has the old on/off "hw_accel" key, which
@@ -413,7 +439,68 @@ void config_load(void)
   gui.browser_grid_size = clampi(ini_get("general", "browser_grid_size", gui.browser_grid_size), 48, 256);
   gui.show_fps   = ini_get("video", "show_fps", gui.show_fps) ? 1 : 0;
   gui.favorites_only = ini_get("general", "favorites_only", gui.favorites_only) ? 1 : 0;
+  gui.recent_mode = ini_get("general", "recent_mode", gui.recent_mode) ? 1 : 0;
   gui.fullscreen_toolbar = ini_get("general", "fullscreen_toolbar", gui.fullscreen_toolbar) ? 1 : 0;
+  gui.integer_scale = ini_get("video", "integer_scale", gui.integer_scale) ? 1 : 0;
+  {
+    int k;
+    for (k = 0; k < padhk_count(); k++)
+    {
+      char key[32];
+      padhk_ini_key(k, key);
+      gui.padhk[k] = ini_get("input", key, gui.padhk[k]);
+    }
+  }
+  {
+    int k;
+    for (k = 0; k < hotkeys_count(); k++)
+    {
+      char hkey[32];
+      hotkey_ini_key(k, hkey, sizeof(hkey));
+      gui.hotkey[k] = ini_get("hotkeys", hkey, gui.hotkey[k]);
+    }
+    /* Fast Forward and Rewind keys used to be set in Controls: carry the old choice over. */
+    if (ini_get("hotkeys", "rev", 0) < 5)
+    {
+      for (k = 0; k < hotkeys_count(); k++)
+      {
+        if (!lstrcmpA(hotkey_name(k), "Fast Forward (hold)")) gui.hotkey[k] = ini_get("input", "key_fast_forward", hotkey_default(k));
+        if (!lstrcmpA(hotkey_name(k), "Rewind (hold)"))       gui.hotkey[k] = ini_get("input", "key_rewind", hotkey_default(k));
+      }
+    }
+    /* Newer default keys: applied once to settings saved with the older ones. */
+    if (ini_get("hotkeys", "rev", 0) < 4)
+    {
+      static const char *const moved[] = { "Reset", "Hard Reset", "ROMs Directory", "Mute FM Sound", "Mute PSG Sound",
+                                           "Show / Hide the Search Bar", "Undo Load State", "Undo Save State" };
+      int m, j;
+      for (m = 0; m < (int)(sizeof(moved) / sizeof(moved[0])); m++)
+        for (k = 0; k < hotkeys_count(); k++)
+          if (!lstrcmpA(hotkey_name(k), moved[m]))
+          {
+            for (j = 0; j < hotkeys_count(); j++)       /* another action holding the key lets go of it */
+              if (j != k && gui.hotkey[j] == hotkey_default(k)) gui.hotkey[j] = 0;
+            gui.hotkey[k] = hotkey_default(k);
+          }
+    }
+    /* Mute got Ctrl+M after the list was first saved with it empty: give it the key once. */
+    if (ini_get("hotkeys", "rev", 0) < 2)
+    {
+      for (k = 0; k < hotkeys_count(); k++)
+      {
+        int j, used = 0;
+        if (lstrcmpA(hotkey_name(k), "Mute") || gui.hotkey[k]) continue;
+        for (j = 0; j < hotkeys_count(); j++) if (gui.hotkey[j] == hotkey_default(k)) used = 1;
+        if (!used) gui.hotkey[k] = hotkey_default(k);
+      }
+    }
+  }
+  gui.mute_fm  = ini_get("audio", "mute_fm", gui.mute_fm) ? 1 : 0;
+  gui.mute_psg = ini_get("audio", "mute_psg", gui.mute_psg) ? 1 : 0;
+  gui.autosave = ini_get("general", "autosave", gui.autosave) ? 1 : 0;
+  gui.resume_choice = ini_get("general", "resume_choice", gui.resume_choice);
+  if (gui.resume_choice < 0 || gui.resume_choice > 2) gui.resume_choice = 0;
+  gui.osd      = ini_get("general", "osd", gui.osd) ? 1 : 0;
   gui.fullscreen = ini_get("video", "fullscreen", gui.fullscreen) ? 1 : 0;
   gui.fullscreen_on_load = ini_get("video", "fullscreen_on_load", gui.fullscreen_on_load) ? 1 : 0;
   config.ntsc    = (uint8)clampi(ini_get("video", "ntsc_filter", config.ntsc), 0, 3);
@@ -526,10 +613,6 @@ void config_load(void)
   input.system[0] = (uint8)clampi(ini_get("input", "port_a", input.system[0]), 0, 14);
   input.system[1] = (uint8)clampi(ini_get("input", "port_b", input.system[1]), 0, 14);
 
-  gui.key_fast_forward = ini_get("input", "key_fast_forward", gui.key_fast_forward);
-  gui.key_rewind       = ini_get("input", "key_rewind", gui.key_rewind);
-  gui.pad_fast_forward = ini_get("input", "pad_fast_forward", gui.pad_fast_forward);
-  gui.pad_rewind       = ini_get("input", "pad_rewind", gui.pad_rewind);
   gui.deadzone[0]      = clampi(ini_get("input", "deadzone_p1", gui.deadzone[0]), 0, 100);
   gui.deadzone[1]      = clampi(ini_get("input", "deadzone_p2", gui.deadzone[1]), 0, 100);
 
@@ -574,6 +657,7 @@ void config_load(void)
       wsprintfA(key, "btn_%s", pad_key_names[i]);
       gui.pad[player].button[i] = ini_get(section, key, gui.pad[player].button[i]);
     }
+    gui.pad[player].turbo = (unsigned)ini_get(section, "turbo", (int)gui.pad[player].turbo) & 0x3F0u;
 
     /* Player 1's keyboard defaults changed (A S D / Q W E  ->  Z X C / A S D).
        A saved config that still holds exactly the old defaults was never
@@ -616,6 +700,7 @@ void config_load(void)
   }
 }
 
+
 void config_save(void)
 {
   char key[64];
@@ -643,12 +728,13 @@ void config_save(void)
   ini_put("netplay", "delay", gui.np_delay);
   ini_put_str("netplay", "address", gui.np_addr);
   ini_put("video", "browser_col_hidden", gui.browser_col_hidden);
+  ini_put("video", "browser_col_extra", gui.browser_col_extra);
+  ini_put("general", "clean_names", gui.clean_names);
   ini_put("video", "browser_sort_column", gui.browser_sort_column);
   ini_put("video", "browser_sort_ascending", gui.browser_sort_ascending);
+  ini_put("video", "browser_layout_rev", 2);
   ini_put("video", "browser_col0_pct", gui.browser_col_pct[0]);
   ini_put("video", "browser_col1_pct", gui.browser_col_pct[1]);
-  ini_put("video", "browser_col2_pct", gui.browser_col_pct[2]);
-  ini_put("video", "browser_col3_pct", gui.browser_col_pct[3]);
   ini_put("video", "renderer", gui.renderer);
   ini_put("video", "vsync", gui.vsync);
   ini_put("video", "theme_mode", gui.theme_mode);
@@ -661,7 +747,33 @@ void config_save(void)
   ini_put("general", "browser_grid_size", gui.browser_grid_size);
   ini_put("video", "show_fps", gui.show_fps);
   ini_put("general", "favorites_only", gui.favorites_only);
+  ini_put("general", "recent_mode", gui.recent_mode);
   ini_put("general", "fullscreen_toolbar", gui.fullscreen_toolbar);
+  ini_put("video", "integer_scale", gui.integer_scale);
+  {
+    int k;
+    for (k = 0; k < padhk_count(); k++)
+    {
+      char key[32];
+      padhk_ini_key(k, key);
+      ini_put("input", key, gui.padhk[k]);
+    }
+  }
+  {
+    int k;
+    for (k = 0; k < hotkeys_count(); k++)
+    {
+      char hkey[32];
+      hotkey_ini_key(k, hkey, sizeof(hkey));
+      ini_put("hotkeys", hkey, gui.hotkey[k]);
+    }
+    ini_put("hotkeys", "rev", 5);
+  }
+  ini_put("audio", "mute_fm", gui.mute_fm);
+  ini_put("audio", "mute_psg", gui.mute_psg);
+  ini_put("general", "autosave", gui.autosave);
+  ini_put("general", "resume_choice", gui.resume_choice);
+  ini_put("general", "osd", gui.osd);
   ini_put("video", "fullscreen", gui.fullscreen);
   ini_put("video", "fullscreen_on_load", gui.fullscreen_on_load);
   ini_put("video", "ntsc_filter", config.ntsc);
@@ -725,10 +837,6 @@ void config_save(void)
 
   ini_put("input", "port_a", input.system[0]);
   ini_put("input", "port_b", input.system[1]);
-  ini_put("input", "key_fast_forward", gui.key_fast_forward);
-  ini_put("input", "key_rewind", gui.key_rewind);
-  ini_put("input", "pad_fast_forward", gui.pad_fast_forward);
-  ini_put("input", "pad_rewind", gui.pad_rewind);
   ini_put("input", "deadzone_p1", gui.deadzone[0]);
   ini_put("input", "deadzone_p2", gui.deadzone[1]);
 
@@ -749,6 +857,7 @@ void config_save(void)
       wsprintfA(key, "btn_%s", pad_key_names[i]);
       ini_put(section, key, gui.pad[player].button[i]);
     }
+    ini_put(section, "turbo", (int)gui.pad[player].turbo);
   }
 
   for (i = 0; i < GUI_RECENT_MAX; i++)
@@ -780,16 +889,17 @@ int config_fav_has(const char *path)
   return 0;
 }
 
-void config_fav_set(const char *path, int on)
+int config_fav_set(const char *path, int on)
 {
   int i;
 
-  if (!path || !path[0]) return;
+  if (!path || !path[0]) return 0;
   for (i = 0; i < fav_n; i++)
     if (!lstrcmpiA(fav_list[i], path)) break;
 
-  if (on && i == fav_n && fav_n < GUI_FAV_MAX)
+  if (on && i == fav_n)
   {
+    if (fav_n >= GUI_FAV_MAX) return 0;
     lstrcpynA(fav_list[fav_n++], path, GUI_PATH_LEN);
   }
   else if (!on && i < fav_n)
@@ -797,6 +907,7 @@ void config_fav_set(const char *path, int on)
     memmove(fav_list[i], fav_list[i + 1], (size_t)(fav_n - i - 1) * GUI_PATH_LEN);
     fav_n--;
   }
+  return 1;
 }
 
 /****************************************************************************
