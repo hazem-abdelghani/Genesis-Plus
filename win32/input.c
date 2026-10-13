@@ -1341,8 +1341,16 @@ static int gamepad_button_held_now(int device, int mask, int deadzone_raw_val)
   return 0;
 }
 
+static int ff_latched, rw_latched;   /* Emulation > Fast Forward / Rewind, ticked */
+int gui_input_ff_latched(void) { return ff_latched; }
+int gui_input_rewind_latched(void) { return rw_latched; }
+void gui_input_toggle_ff(void) { ff_latched = !ff_latched; if (ff_latched) rw_latched = 0; }
+void gui_input_toggle_rewind(void) { rw_latched = !rw_latched; if (rw_latched) ff_latched = 0; }
+void gui_input_clear_latches(void) { ff_latched = rw_latched = 0; }
+
 int gui_input_fast_forward(void)
 {
+  if (ff_latched) return 1;
   /* Deliberately absent from the accelerator table so it reaches us here
      regardless of which key it's mapped to. */
   int vk = hotkey_hold_vk(HK_FASTFWD);
@@ -1354,6 +1362,7 @@ int gui_input_fast_forward(void)
 
 int gui_input_rewind(void)
 {
+  if (rw_latched) return 1;
   int vk = hotkey_hold_vk(HK_REWIND);
   if (vk && key_down(vk)) return 1;
   if (gui.pad[0].device >= 0 && gui.pad[0].device < XPAD_MAX_DEVICES &&
@@ -1623,7 +1632,7 @@ const char *input_key_name(int vk)
   UINT scan;
   LONG lparam;
 
-  if (!vk) return "(unassigned)";
+  if (!vk) return "(Unassigned)";
 
   scan = MapVirtualKeyA((UINT)vk, MAPVK_VK_TO_VSC);
   if (!scan) { wsprintfA(name, "Key %d", vk); return name; }
@@ -1656,20 +1665,20 @@ const char *input_pad_button_name(int device, int mask)
 {
   static const struct { int mask; const char *name; } xinput_names[] =
   {
-    { XPAD_DPAD_UP,        "D-pad Up"    },
-    { XPAD_DPAD_DOWN,      "D-pad Down"  },
-    { XPAD_DPAD_LEFT,      "D-pad Left"  },
-    { XPAD_DPAD_RIGHT,     "D-pad Right" },
-    { XPAD_START,          "Start button"  },
-    { XPAD_BACK,           "Back button"   },
-    { XPAD_LEFT_SHOULDER,  "LB button"   },
-    { XPAD_RIGHT_SHOULDER, "RB button"   },
-    { XPAD_A,              "A button"    },
-    { XPAD_B,              "B button"    },
-    { XPAD_X,              "X button"    },
-    { XPAD_Y,              "Y button"    },
-    { XPAD_LEFT_TRIGGER,   "LT button"   },
-    { XPAD_RIGHT_TRIGGER,  "RT button"   },
+    { XPAD_DPAD_UP,        "D-Pad Up"    },
+    { XPAD_DPAD_DOWN,      "D-Pad Down"  },
+    { XPAD_DPAD_LEFT,      "D-Pad Left"  },
+    { XPAD_DPAD_RIGHT,     "D-Pad Right" },
+    { XPAD_START,          "Start Button"  },
+    { XPAD_BACK,           "Back Button"   },
+    { XPAD_LEFT_SHOULDER,  "LB (Left Bumper)"   },
+    { XPAD_RIGHT_SHOULDER, "RB (Right Bumper)"   },
+    { XPAD_A,              "A Button"    },
+    { XPAD_B,              "B Button"    },
+    { XPAD_X,              "X Button"    },
+    { XPAD_Y,              "Y Button"    },
+    { XPAD_LEFT_TRIGGER,   "LT (Left Trigger)"   },
+    { XPAD_RIGHT_TRIGGER,  "RT (Right Trigger)"   },
     { XPAD_RS_UP,          "Right Stick Up"    },
     { XPAD_RS_DOWN,        "Right Stick Down"  },
     { XPAD_RS_LEFT,        "Right Stick Left"  },
@@ -1678,14 +1687,14 @@ const char *input_pad_button_name(int device, int mask)
   static char name[32];
   int i;
 
-  if (!mask) return "(unassigned)";
+  if (!mask) return "(Unassigned)";
 
   if (is_di_device(device))
   {
-    if (mask == (int)DI_DPAD_UP)    return "D-pad/Stick Up";
-    if (mask == (int)DI_DPAD_DOWN)  return "D-pad/Stick Down";
-    if (mask == (int)DI_DPAD_LEFT)  return "D-pad/Stick Left";
-    if (mask == (int)DI_DPAD_RIGHT) return "D-pad/Stick Right";
+    if (mask == (int)DI_DPAD_UP)    return "D-Pad/Stick Up";
+    if (mask == (int)DI_DPAD_DOWN)  return "D-Pad/Stick Down";
+    if (mask == (int)DI_DPAD_LEFT)  return "D-Pad/Stick Left";
+    if (mask == (int)DI_DPAD_RIGHT) return "D-Pad/Stick Right";
     if (mask == (int)DI_RS_UP)      return "Right Stick Up";
     if (mask == (int)DI_RS_DOWN)    return "Right Stick Down";
     if (mask == (int)DI_RS_LEFT)    return "Right Stick Left";
@@ -1700,7 +1709,7 @@ const char *input_pad_button_name(int device, int mask)
       }
     }
 
-    wsprintfA(name, "pad 0x%06X", mask);
+    wsprintfA(name, "Pad 0x%06X", mask);
     return name;
   }
 
@@ -1711,7 +1720,7 @@ const char *input_pad_button_name(int device, int mask)
 
   /* Should not happen for anything this app itself ever assigns, but
      falls back to the raw value rather than showing nothing if it does. */
-  wsprintfA(name, "pad 0x%05X", mask);
+  wsprintfA(name, "Pad 0x%05X", mask);
   return name;
 }
 

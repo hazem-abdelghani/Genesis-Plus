@@ -131,6 +131,8 @@
 #define IDM_BROWSER_CHEATS         833
 #define IDM_BROWSER_SET_COVER      834
 #define IDM_BROWSER_REMOVE_COVER   835
+#define IDM_BROWSER_OPENDIR        840   /* context menu: Open ROMs Directory */
+#define IDM_BROWSER_CLEAR_RECENT   841   /* context menu: Clear Recently Played */
 #define IDM_BROWSER_FAVORITE       838   /* context menu: add to / remove from favorites */
 
 /* --- Dialogs ---------------------------------------------------------- */
@@ -194,9 +196,11 @@
 #define IDC_AUDIO_DEFAULTS       1030
 
 #define IDC_SHORTCUTS_TEXT       1040
+#define IDC_SHORTCUTS_HINT      1043
 #define IDC_MENUGUIDE_TEXT        1068
 #define IDC_MENUGUIDE_LIST        1091
 #define IDC_ROMINFO_TEXT         1041
+#define IDC_ROMINFO_COPY         1044
 
 #define IDC_CHEATS_LIST          1050
 #define IDC_CHEATS_CODE          1051
@@ -276,7 +280,7 @@
 #define IDM_AUDIO_MUTE_FM          2503   /* Audio > Mute FM Sound */
 #define IDM_AUDIO_MUTE_PSG         2504   /* Audio > Mute PSG Sound */
 #define IDM_EMU_AUTOSAVE           2505   /* Emulation > Auto Resume */
-#define IDM_OPTIONS_OSD            2506   /* Options > Show On-Screen Messages */
+#define IDM_OPTIONS_OSD            2506   /* Options > Show On-Screen Display */
 #define IDM_VIEW_COL_EXTRA        2510   /* List Columns > Genre */
 #define IDM_VIEW_SORT_RECENT      2514   /* View > Recently Played at the Top */
 #define IDM_EMU_SLOWMO             2522   /* Emulation > Slow Motion */
@@ -290,6 +294,8 @@
 #define IDC_HK_HINT                1504
 #define IDM_FILE_LOADSLOT_BASE    2540   /* .. 2549: Load State > Load State from Slot */
 #define IDM_FILE_SAVESLOT_BASE    2550   /* .. 2559: Save State > Save State to Slot */
+#define IDM_VIEW_GRIDLINES        2561   /* View > Show Grid Lines */
+#define IDM_VIEW_SCANSUB          2562   /* Settings > General > Scan ROM Subfolders (no menu item) */
 #define IDM_EMU_UNDOSAVE          2560   /* Save State > Undo Save State */
 #define IDC_INPUT_PADHK           1097   /* Controls: Gamepad Hotkeys... */
 #define IDD_PADHK                  944
@@ -299,3 +305,5 @@
 #define IDC_PH_ASSIGN             1523
 #define IDC_PH_CLEAR              1524
 #define IDC_PH_DEFAULTS           1525
+#define IDM_EMU_REWINDNOW          2597   /* Emulation > Rewind (the key, Backspace, is held; the menu item latches it) */
+#define IDM_EMU_FASTFWD            2598   /* Emulation > Fast Forward (Tab) */

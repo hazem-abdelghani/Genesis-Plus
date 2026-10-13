@@ -76,6 +76,8 @@ static const SRow rows_view[] =
   CHECK ("Show the Console Column", IDM_VIEW_COL_BASE + 1, "Show the Console column in the list view."),
   CHECK ("Show the Genre Column",   IDM_VIEW_COL_EXTRA + 0, "Show each game's genre in the list view."),
   CHECK ("Clean Game Names", IDM_VIEW_CLEANNAMES, "Hide the (...) and [...] tags and the extension: show \"Sonic The Hedgehog\" instead of \"Sonic The Hedgehog (USA, Europe) [!].md\" in the game list."),
+  CHECK ("Show Grid Lines", IDM_VIEW_GRIDLINES, "Draw thin horizontal lines between the rows of the lists (the game list and the lists in the other windows). The lines between columns are always shown."),
+  CHECK ("Scan ROMs Subfolders", IDM_VIEW_SCANSUB, "Also look for games in the folders inside the ROMs directory. Switch it off to list only the games directly in it."),
   CHOICE("Theme:",                IDM_VIDEO_THEME_BASE, it_theme, "System follows Windows; Light or Dark forces one."),
   CHECK ("Larger UI",             IDM_VIDEO_LARGE_UI, "Bigger menus, dialogs and toolbar."),
   CHECK ("Toolbar in Fullscreen", IDM_VIEW_FSTOOLBAR, "In fullscreen, show the toolbar (with the menu bar) when the mouse touches the top edge of the screen."),
@@ -86,7 +88,9 @@ static const SRow rows_view[] =
   CHECK ("Show Recently Played", IDM_VIEW_SORT_RECENT, "Shows the last few games you opened as a group at the top of the list, above all the others. Choose it again to switch it off."),
   CHECK ("Enable Rewind",         IDM_EMU_REWIND, "Keep a history of recent play so holding Backspace runs it backwards. Uses about 200 MB and some CPU; not available during netplay."),
   CHECK ("Auto Resume", IDM_EMU_AUTOSAVE, "Save the game when you close it, and offer to carry on from there the next time you open it."),
+  CHECK ("Fast Forward",          IDM_EMU_FASTFWD, "Run the game fast and keep it that way until you untick this. Holding the Fast Forward key (Tab) does it only while held."),
   CHECK ("Slow Motion",           IDM_EMU_SLOWMO, "Run the game at half speed (the sound slows down with it)."),
+  CHECK ("Rewind",                IDM_EMU_REWINDNOW, "Run the game backwards until you untick this (needs Enable Rewind). Holding the Rewind key (Backspace) does it only while held."),
   CHECK ("Pause When Inactive",   IDM_EMU_PAUSE_UNFOCUSED, "Pause the game while another window has focus."),
   CHOICE("Screenshot Output:",    IDM_TOOLS_SHOT_BASE, it_shot, "Final: the render filter applied, stretched to 4:3. Corrected: the plain picture at 640x480. Raw: exactly what the emulator drew, at its own size."),
 };
@@ -148,7 +152,7 @@ static const SRow rows_options[] =
   CHECK ("Emulate Address Error Exceptions", IDM_EMU_ADDRERROR, "Hardware-accurate crashes on bad memory access; turn off only for a few hacked games."),
   CHECK ("Show Extended Game Gear Screen", IDM_VIDEO_GGEXTRA, "Show the whole Game Gear picture instead of only the part its screen displayed."),
   CHECK ("Show Master System Side Borders", IDM_VIDEO_SMSBORDER, "Show the 8-pixel columns at each side, which are cropped by default."),
-  CHECK ("Show On-Screen Messages", IDM_OPTIONS_OSD, "Show short messages over the picture, such as \"Saved to slot 3\" or the screenshot name."),
+  CHECK ("Show On-Screen Display", IDM_OPTIONS_OSD, "Show short messages over the picture, such as \"Saved to slot 3\" or the screenshot name."),
   CHECK ("Show Frame Rate",       IDM_VIDEO_SHOWFPS, "Show frames per second on screen."),
 };
 
@@ -204,6 +208,7 @@ static UINT find_state(HMENU menu, int id)
 
 static UINT menu_state(int id)
 {
+  if (id == IDM_VIEW_SCANSUB) return gui.scan_subfolders ? MF_CHECKED : 0;   /* a setting with no menu item */
   return find_state(gui_main_menu(), id);
 }
 
@@ -558,11 +563,11 @@ static LRESULT CALLBACK page_proc(HWND h, UINT m, WPARAM w, LPARAM l)
     {
       HBRUSH br;
 
-      /* The shader file box is #333333 in dark mode, a shade lighter than the page
+      /* The shader file box is #2D2D2D in dark mode, a shade lighter than the page
          (also while it is grayed, when it is asked for as a static). */
       if ((HWND)l == s_shader_edit && s_shader_edit)
       {
-        br = theme_ctlcolor_custom((HDC)w, RGB(0x33, 0x33, 0x33), 2);
+        br = theme_ctlcolor_custom((HDC)w, RGB(0x2D, 0x2D, 0x2D), 2);
         if (br) return (LRESULT)br;
       }
 

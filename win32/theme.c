@@ -262,6 +262,73 @@ static LRESULT CALLBACK listview_header_subclass_proc(HWND hwnd, UINT msg, WPARA
   return DefSubclassProc(hwnd, msg, wp, lp);
 }
 
+static LRESULT CALLBACK header_paint_subclass_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR ref);
+static void draw_header_cell(HDC dc, HWND header, int idx, const RECT *prc);
+
+static LRESULT CALLBACK listview_grid_subclass_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR ref)
+{
+  LRESULT r;
+
+  (void)ref;
+  if (msg == WM_NCDESTROY) RemoveWindowSubclass(hwnd, listview_grid_subclass_proc, id);
+  r = DefSubclassProc(hwnd, msg, wp, lp);
+
+  if (msg == WM_PAINT && ListView_GetView(hwnd) == LV_VIEW_DETAILS)
+  {
+    HDC dc = GetDC(hwnd);
+
+    if (dc)
+    {
+      RECT cr;
+      HWND header = ListView_GetHeader(hwnd);
+      int hh = 0, i, n, cols;
+      HPEN pen = CreatePen(PS_SOLID, 1, theme_is_dark() ? RGB(0x3A, 0x3A, 0x3A) : RGB(0xDD, 0xDD, 0xDD));
+      HGDIOBJ op = SelectObject(dc, pen);
+
+      GetClientRect(hwnd, &cr);
+      if (header && IsWindowVisible(header))
+      {
+        RECT hr;
+        GetWindowRect(header, &hr);
+        hh = hr.bottom - hr.top;
+      }
+      IntersectClipRect(dc, 0, hh, cr.right, cr.bottom);
+
+      cols = header ? Header_GetItemCount(header) : 0;
+      for (i = 0; i + 1 < cols; i++)             /* between the columns */
+      {
+        RECT ir;
+        if (Header_GetItemRect(header, i, &ir))
+        {
+          MapWindowPoints(header, hwnd, (POINT *)&ir, 2);
+          MoveToEx(dc, ir.right - 1, hh, NULL);
+          LineTo(dc, ir.right - 1, cr.bottom);
+        }
+      }
+
+      if (gui.browser_gridlines)                 /* under the rows */
+      {
+        int top = ListView_GetTopIndex(hwnd), per = ListView_GetCountPerPage(hwnd);
+        n = ListView_GetItemCount(hwnd);
+        for (i = top; i < n && i <= top + per + 1; i++)
+        {
+          RECT ir;
+          if (ListView_GetItemRect(hwnd, i, &ir, LVIR_BOUNDS))
+          {
+            MoveToEx(dc, 0, ir.bottom - 1, NULL);
+            LineTo(dc, cr.right, ir.bottom - 1);
+          }
+        }
+      }
+
+      SelectObject(dc, op);
+      DeleteObject(pen);
+      ReleaseDC(hwnd, dc);
+    }
+  }
+  return r;
+}
+
 static BOOL CALLBACK apply_to_child(HWND hwnd, LPARAM lparam)
 {
   int dark = (int)lparam;
@@ -325,6 +392,7 @@ static BOOL CALLBACK apply_to_child(HWND hwnd, LPARAM lparam)
        regardless of which of the two visits happens last. */
     RECT r;
     SetWindowTheme(hwnd, dark ? L"ItemsView" : NULL, NULL);
+    SetWindowSubclass(hwnd, header_paint_subclass_proc, 5, 0);
     /* Column-divider lines are drawn as part of this control's own
        frame, not just its interior -- a plain invalidate left stale
        dark divider lines behind when switching back to light, so this
@@ -369,8 +437,13 @@ static BOOL CALLBACK apply_to_child(HWND hwnd, LPARAM lparam)
        separate and need setting explicitly. The header is handled in
        its own branch above, not here. */
     RECT r;
-    COLORREF bg_color = (dark && GetDlgCtrlID(hwnd) == IDC_CHEATS_LIST)
-                       ? RGB(0x33, 0x33, 0x33) : RGB(32, 32, 32);
+    /* Lines between the columns (always) and rows (View > Show Grid Lines) of every list but the
+       game browser, which draws its own: painted over the list by grid_subclass_proc, in both
+       themes (the built-in grid is too bright in dark mode). */
+    SendMessage(hwnd, LVM_SETEXTENDEDLISTVIEWSTYLE, LVS_EX_GRIDLINES, 0);
+    if (GetDlgCtrlID(hwnd) != IDC_BROWSER_LIST) SetWindowSubclass(hwnd, listview_grid_subclass_proc, 6, 0);
+    COLORREF bg_color = GetDlgCtrlID(hwnd) == IDC_BROWSER_LIST ? RGB(0x24, 0x24, 0x24)   /* the ROM browser: darker, #242424 */
+                                                                : RGB(0x2D, 0x2D, 0x2D);  /* every other list: #2D2D2D */
     ListView_SetBkColor(hwnd, dark ? bg_color : RGB(255, 255, 255));
     ListView_SetTextColor(hwnd, dark ? RGB(240, 240, 240) : RGB(0, 0, 0));
     ListView_SetTextBkColor(hwnd, dark ? bg_color : RGB(255, 255, 255));
@@ -555,15 +628,137 @@ LRESULT theme_statusbar_customdraw(NMHDR *hdr, HWND status_bar)
 
   cd = (NMCUSTOMDRAW *)hdr;
 
-  if (cd->dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
+  /* The header strip is #191919 in dark mode: the items are drawn here, and what is left of the
+     strip to the right of the last one is filled after they are. */
+  if (cd->dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW | CDRF_NOTIFYPOSTPAINT;
 
   if (cd->dwDrawStage == CDDS_ITEMPREPAINT)
   {
-    SetTextColor(cd->hdc, RGB(240, 240, 240));
+    draw_header_cell(cd->hdc, hdr->hwndFrom, (int)cd->dwItemSpec, &cd->rc);
+    return CDRF_SKIPDEFAULT;
+  }
+
+  if (cd->dwDrawStage == CDDS_POSTPAINT)
+  {
+    RECT client, last;
+    int n = (int)SendMessage(hdr->hwndFrom, HDM_GETITEMCOUNT, 0, 0);
+    HBRUSH br = CreateSolidBrush(RGB(0x19, 0x19, 0x19));
+
+    GetClientRect(hdr->hwndFrom, &client);
+    if (n > 0 && SendMessage(hdr->hwndFrom, HDM_GETITEMRECT, (WPARAM)(n - 1), (LPARAM)&last)) client.left = last.right;
+    FillRect(cd->hdc, &client, br);
+    DeleteObject(br);
     return CDRF_DODEFAULT;
   }
 
   return CDRF_DODEFAULT;
+}
+
+/* One header cell in dark mode: #191919 with light text, the sort arrow and a thin divider. */
+static void draw_header_cell(HDC dc, HWND header, int idx, const RECT *prc)
+{
+    HDITEMA hi;
+    char text[128];
+    RECT r = *prc, tr;
+    HBRUSH br = CreateSolidBrush(RGB(0x19, 0x19, 0x19));
+    HPEN pen, op;
+    UINT fmt;
+
+    FillRect(dc, &r, br);
+    DeleteObject(br);
+
+    /* A column that is switched off is a header cell of no width: nothing of it is drawn (its
+       truncated text used to leave a stray coloured speck at the end of the header row). */
+    if (r.right - r.left < 14) return;
+
+    memset(&hi, 0, sizeof(hi));
+    text[0] = '\0';
+    hi.mask = HDI_TEXT | HDI_FORMAT;
+    hi.pszText = text;
+    hi.cchTextMax = (int)sizeof(text);
+    SendMessageA(header, HDM_GETITEMA, (WPARAM)idx, (LPARAM)&hi);
+
+    tr = r;
+    tr.left += 6;
+    tr.right -= 6;
+    if (hi.fmt & (HDF_SORTUP | HDF_SORTDOWN)) tr.right -= 14;
+    fmt = DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS;
+    fmt |= (hi.fmt & HDF_JUSTIFYMASK) == HDF_CENTER ? DT_CENTER : (hi.fmt & HDF_JUSTIFYMASK) == HDF_RIGHT ? DT_RIGHT : DT_LEFT;
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, RGB(240, 240, 240));
+    DrawTextA(dc, text, -1, &tr, (UINT)fmt);
+
+    if (hi.fmt & (HDF_SORTUP | HDF_SORTDOWN))        /* the sort arrow */
+    {
+      int cx = r.right - 12, cy = (r.top + r.bottom) / 2;
+      POINT p[3];
+      HBRUSH ab = CreateSolidBrush(RGB(200, 200, 200));
+      HGDIOBJ ob = SelectObject(dc, ab), opn = SelectObject(dc, GetStockObject(NULL_PEN));
+      if (hi.fmt & HDF_SORTUP) { p[0].x = cx - 4; p[0].y = cy + 2; p[1].x = cx + 4; p[1].y = cy + 2; p[2].x = cx; p[2].y = cy - 2; }
+      else                     { p[0].x = cx - 4; p[0].y = cy - 2; p[1].x = cx + 4; p[1].y = cy - 2; p[2].x = cx; p[2].y = cy + 2; }
+      Polygon(dc, p, 3);
+      SelectObject(dc, opn);
+      SelectObject(dc, ob);
+      DeleteObject(ab);
+    }
+
+    pen = CreatePen(PS_SOLID, 1, RGB(0x55, 0x55, 0x55));       /* divider on the right edge */
+    op = SelectObject(dc, pen);
+    MoveToEx(dc, r.right - 1, r.top + 3, NULL);
+    LineTo(dc, r.right - 1, r.bottom - 3);
+    SelectObject(dc, op);
+    DeleteObject(pen);
+}
+
+/* The whole header row painted here in dark mode (rather than relying on the control's own
+   themed painting, which kept its colour): background, every cell, and the empty part at the end. */
+static LRESULT CALLBACK header_paint_subclass_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
+                                                   UINT_PTR id, DWORD_PTR ref)
+{
+  (void)ref;
+
+  if (msg == WM_NCDESTROY) RemoveWindowSubclass(hwnd, header_paint_subclass_proc, id);
+
+  if (theme_is_dark())
+  {
+    if (msg == WM_ERASEBKGND) return 1;
+    if (msg == WM_PAINT || msg == WM_PRINTCLIENT)
+    {
+      PAINTSTRUCT ps;
+      RECT client;
+      HDC dc = msg == WM_PAINT ? BeginPaint(hwnd, &ps) : (HDC)wp;
+      HFONT f = (HFONT)SendMessage(hwnd, WM_GETFONT, 0, 0);
+      HGDIOBJ of = f ? SelectObject(dc, f) : NULL;
+      HBRUSH br = CreateSolidBrush(RGB(0x19, 0x19, 0x19));
+      int i, cnt = (int)SendMessage(hwnd, HDM_GETITEMCOUNT, 0, 0);
+
+      GetClientRect(hwnd, &client);
+      FillRect(dc, &client, br);
+      DeleteObject(br);
+      for (i = 0; i < cnt; i++)
+      {
+        RECT r;
+        if (SendMessage(hwnd, HDM_GETITEMRECT, (WPARAM)i, (LPARAM)&r)) draw_header_cell(dc, hwnd, i, &r);
+      }
+      if (of) SelectObject(dc, of);
+      if (msg == WM_PAINT) EndPaint(hwnd, &ps);
+      return 0;
+    }
+  }
+
+  /* A repaint only covers what Windows marks as changed, so a column that is shown, hidden or resized
+     could leave a speck of the old header behind (seen at the end of the row with a column switched
+     off): the whole row is repainted after anything that changes it. */
+  {
+    LRESULT r = DefSubclassProc(hwnd, msg, wp, lp);
+
+    if (theme_is_dark() &&
+        (msg == WM_SIZE || msg == WM_WINDOWPOSCHANGED || msg == HDM_SETITEMA || msg == HDM_SETITEMW ||
+         msg == HDM_INSERTITEMA || msg == HDM_INSERTITEMW || msg == HDM_DELETEITEM || msg == HDM_SETORDERARRAY ||
+         msg == HDM_LAYOUT))
+      InvalidateRect(hwnd, NULL, FALSE);
+    return r;
+  }
 }
 
 LRESULT theme_header_customdraw(NMHDR *hdr)
@@ -662,8 +857,34 @@ int theme_draw_menu_bar(HWND hwnd, LPARAM lp)
   br = CreateSolidBrush(RGB(32, 32, 32));
   FillRect(menu->hdc, &rect, br);
   DeleteObject(br);
+  theme_paint_menu_line(hwnd, menu->hdc);
 
   return 1;
+}
+
+/* The 1-pixel line Windows draws between the menu bar and the window's client area is white
+   whatever the theme; painted grey here (in window coordinates, so with a window DC). */
+void theme_paint_menu_line(HWND hwnd, HDC dc)
+{
+  RECT rc_client, rc_window, line;
+  HBRUSH br;
+  HDC own = NULL;
+
+  if (!theme_is_dark() || !GetMenu(hwnd)) return;
+  if (!dc) { own = GetWindowDC(hwnd); dc = own; }
+  if (!dc) return;
+
+  GetClientRect(hwnd, &rc_client);
+  MapWindowPoints(hwnd, NULL, (POINT *)&rc_client, 2);
+  GetWindowRect(hwnd, &rc_window);
+  OffsetRect(&rc_client, -rc_window.left, -rc_window.top);
+  line = rc_client;
+  line.bottom = line.top;
+  line.top--;
+  br = CreateSolidBrush(RGB(0x55, 0x55, 0x55));       /* a grey line, not white and not gone */
+  FillRect(dc, &line, br);
+  DeleteObject(br);
+  if (own) ReleaseDC(hwnd, own);
 }
 
 void theme_paint_menubar(HWND hwnd, int force)
@@ -680,6 +901,7 @@ void theme_paint_menubar(HWND hwnd, int force)
   int i, n, hot = -1;
 
   if (!menu || !theme_is_dark()) { last_hot = -2; return; }
+  theme_paint_menu_line(hwnd, NULL);
 
   mbi.cbSize = sizeof(mbi);
   if (!GetMenuBarInfo(hwnd, OBJID_MENU, 0, &mbi)) return;

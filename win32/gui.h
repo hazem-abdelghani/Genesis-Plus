@@ -146,6 +146,13 @@ extern void gui_input_shutdown(void);
 extern void gui_input_set_focus(int focused);
 extern int  gui_input_fast_forward(void);
 extern int  gui_input_rewind(void);
+extern void theme_paint_menu_line(HWND hwnd, HDC dc);
+extern void hotkey_menu_keys(int cmd, char *out, int len);
+extern int  gui_input_ff_latched(void);          /* Emulation > Fast Forward is ticked */
+extern int  gui_input_rewind_latched(void);
+extern void gui_input_toggle_ff(void);
+extern void gui_input_toggle_rewind(void);
+extern void gui_input_clear_latches(void);
 extern int  gui_input_frame_advance(void);
 extern int  gui_input_p2_slot(void);   /* -1 unless both ports have a plain control pad */
 extern int  gui_input_save_slot_shortcut(void);
@@ -241,6 +248,8 @@ extern void browser_fullscreen_toolbar(int show);    /* fullscreen: the toolbar 
 extern int  browser_fullscreen_toolbar_shown_height(void);
 extern void browser_toggle_recent(void);           /* View > Recently Played at the Top */
 extern void browser_refresh_names(void);
+extern void browser_rescan_now(void);              /* search the ROMs directory again */
+extern void browser_redraw(void);
 extern void browser_genre_for(const char *path, char *out, int out_len);
 extern void browser_toggle_favorites_only(void);    /* the toolbar star / View > Show Favorites Only */
 extern int  browser_favorites_only(void);
@@ -302,6 +311,13 @@ extern void gui_dialog_tips(HWND dlg, const GuiTip *defs, int n);
 
 /* history.c: when each game was last played, how often and for how long */
 extern void history_load(void);
+extern void history_clear(void);                  /* View > Clear Recently Played */
+extern void browser_clear_recent(void);
+extern int  history_count(void);
+extern const char *history_entry_path(int i);
+extern unsigned long long history_entry_last(int i);
+extern void history_restore(const char *path, unsigned long long last);   /* config.c reading the ini */
+extern void config_history_load(void);
 extern void history_save(void);
 extern void history_game_started(const char *path);
 extern void history_game_ended(void);
@@ -312,8 +328,8 @@ extern int  hotkeys_count(void);
 extern const char *hotkey_owner_of_key(int vk);          /* the shortcut that is this plain key, or NULL */
 extern const char *padhk_owner_of_button(int mask);     /* the gamepad hotkey on this pad button, or NULL */
 extern int  hotkey_hold_vk(int cmd);   /* the key held for Fast Forward / Rewind */
-#define HK_FASTFWD 2598
-#define HK_REWIND  2597
+#define HK_FASTFWD IDM_EMU_FASTFWD
+#define HK_REWIND  IDM_EMU_REWINDNOW
 #define PADHK_FASTFWD 0       /* gui.padhk[]: the first two are held buttons */
 #define PADHK_REWIND  1
 extern int  padhk_is_hold(int i);

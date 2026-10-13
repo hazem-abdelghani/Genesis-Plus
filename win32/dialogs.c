@@ -778,7 +778,7 @@ static void input_build(HWND dlg)
     static char map_tip[PAD_KEYS][200];
     static const char *const what[PAD_KEYS] =
     {
-      "D-pad Up.", "D-pad Down.", "D-pad Left.", "D-pad Right.", "Button A.", "Button B.", "Button C.",
+      "D-Pad Up.", "D-Pad Down.", "D-Pad Left.", "D-Pad Right.", "Button A.", "Button B.", "Button C.",
       "Button X (6-button pads).", "Button Y (6-button pads).", "Button Z (6-button pads).",
       "The Start button.", "The Mode button (6-button pads)."
     };
@@ -1515,41 +1515,52 @@ static INT_PTR CALLBACK shortcuts_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
   switch (msg)
   {
     case WM_INITDIALOG:
+    {
+      HWND list = GetDlgItem(dlg, IDC_SHORTCUTS_TEXT);
+      LVCOLUMNA col;
+      LVITEMA it;
+      RECT rc;
+      char keys[4096], *line;
+      int row = 0;
+
+      SendMessage(list, LVM_SETEXTENDEDLISTVIEWSTYLE, LVS_EX_FULLROWSELECT, LVS_EX_FULLROWSELECT);
+      GetClientRect(list, &rc);
+      memset(&col, 0, sizeof(col));
+      col.mask = LVCF_TEXT | LVCF_WIDTH;
+      col.pszText = "Action";
+      col.cx = (rc.right - rc.left) * 42 / 100;
+      SendMessageA(list, LVM_INSERTCOLUMNA, 0, (LPARAM)&col);
+      col.pszText = "Shortcut";
+      col.cx = (rc.right - rc.left) * 38 / 100;
+      SendMessageA(list, LVM_INSERTCOLUMNA, 1, (LPARAM)&col);
+
+      /* hotkeys_describe gives "Action<TAB>Shortcut" lines. */
+      hotkeys_describe(keys, sizeof(keys));
+      for (line = strtok(keys, "\r\n"); line; line = strtok(NULL, "\r\n"))
+      {
+        char *tab = strchr(line, '\t');
+        if (!tab) continue;
+        *tab = '\0';
+        memset(&it, 0, sizeof(it));
+        it.mask = LVIF_TEXT;
+        it.iItem = row;
+        it.pszText = line;
+        SendMessageA(list, LVM_INSERTITEMA, 0, (LPARAM)&it);
+        it.iSubItem = 1;
+        it.pszText = tab + 1;
+        SendMessageA(list, LVM_SETITEMTEXTA, (WPARAM)row, (LPARAM)&it);
+        row++;
+      }
+
       theme_apply_to_window(dlg);
       {
-        /* One consistent tab stop, wide enough for the longest key name
-           ("Backspace (held)"), rather than a hand-guessed mix of one and
-           two tabs per line -- that guessing is exactly what left "Toggle
-           fullscreen" misaligned from its neighbours before. */
-        int tabs[1] = { 190 };
-        SendDlgItemMessage(dlg, IDC_SHORTCUTS_TEXT, EM_SETTABSTOPS, 1, (LPARAM)tabs);
+        HWND header = ListView_GetHeader(list);
+        if (header && theme_is_dark()) { SetWindowTheme(header, L"ItemsView", NULL); InvalidateRect(header, NULL, TRUE); }
       }
-
-      {
-        char text[4096], keys[2048];
-
-        lstrcpyA(text,
-          "KEYBOARD (PLAYER 1 DEFAULTS)\r\n"
-          "Pad Button\tKey\r\n"
-          "D-pad\tArrow keys\r\n"
-          "A B C\tZ X C\r\n"
-          "X Y Z\tA S D\r\n"
-          "Start\tEnter\r\n"
-          "Mode\tRight Shift\r\n"
-          "\r\n"
-          "A connected gamepad works without setup. Change any of the pad\r\n"
-          "bindings under Input > Controls.\r\n"
-          "\r\n"
-          "SHORTCUTS (change them under Input > Hotkeys)\r\n"
-          "Action\tShortcut\r\n");
-        hotkeys_describe(keys, sizeof(keys));
-        lstrcatA(text, keys);
-        lstrcatA(text,
-          "Save to a Slot\tShift+0 .. 9\r\n"
-          "Load from a Slot\t0 .. 9");
-        SetDlgItemTextA(dlg, IDC_SHORTCUTS_TEXT, text);
-      }
+      SetDlgItemTextA(dlg, IDC_SHORTCUTS_HINT,
+        "Change any of these under Input > Hotkeys. Player 1 keyboard defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode (Input > Controls). A connected gamepad works without setup.");
       return TRUE;
+    }
 
     case WM_CTLCOLORDLG:
     case WM_CTLCOLOREDIT:
@@ -1590,7 +1601,7 @@ static const char menu_guide_text[] =
   "   Pick a game file to play: Mega Drive / Genesis, Master System, Game Gear, SG-1000, Mega CD, or a .zip / .7z / .gz that holds one.\r\n"
   "\r\n"
   "  ROMs Directory... (Ctrl+R):\r\n"
-  "   Shows the game browser for a folder of games. Double-click a game to play it, right-click for more choices (play with a saved state, cheats, cover image).\r\n"
+  "   Shows the game browser for a folder of games. Double-click a game to play it, right-click for more choices (play with a saved state, cheats, cover image, clear the recently played list: it is greyed when there is nothing to clear). Folders inside it are searched too (Settings > General > Scan ROMs Subfolders, on by default).\r\n"
   "\r\n"
   "  Recent Files:\r\n"
   "   Your last games, each shown with its console.\r\n"
@@ -1615,10 +1626,10 @@ static const char menu_guide_text[] =
   "   Reset is the console's reset button. Hard Reset power-cycles the console (saved game data is kept).\r\n"
   "\r\n"
   "  Load State:\r\n"
-  "   Load State from Selected Slot (F8) restores the exact moment saved in the selected slot. Load State from Slot loads any of the slots 0-9 directly, whichever is selected (empty slots are greyed). Undo Load State (Ctrl+F8) puts the game back as it was just before the last load; one level, cleared when the game is closed.\r\n"
+  "   Load State from Selected Slot (F8) restores the exact moment saved in the selected slot. Load State from Slot (keys 0-9) loads any of the slots 0-9 directly, whichever is selected (empty slots are greyed). Undo Load State (Ctrl+F8) puts the game back as it was just before the last load; one level, cleared when the game is closed.\r\n"
   "\r\n"
   "  Save State:\r\n"
-  "   Save State to Selected Slot (F5) saves the exact moment into the selected slot. Save State to Slot saves into any of the slots 0-9 directly. Undo Save State puts the slot back as it was before the last save (or empties it if it was empty); one level, cleared when the game is closed.\r\n"
+  "   Save State to Selected Slot (F5) saves the exact moment into the selected slot. Save State to Slot (Shift+0 - Shift+9) saves into any of the slots 0-9 directly. Undo Save State puts the slot back as it was before the last save (or empties it if it was empty); one level, cleared when the game is closed.\r\n"
   "\r\n"
   "  Select State Slot:\r\n"
   "   Choose slot 0-9 for F5 / F8 (F6 / F7 = previous / next). Each entry shows when the slot was last saved.\r\n"
@@ -1635,8 +1646,11 @@ static const char menu_guide_text[] =
   "  Auto Resume:\r\n"
   "   Saves the game when you close it (or quit) and, the next time you open that game, asks whether to carry on from there. The question has a \"Do not ask again\" box that remembers your answer; the Restore Dialog button next to Auto Resume in Settings brings it back. It uses a state of its own, so your ten save slots are untouched.\r\n"
   "\r\n"
-  "  Slow Motion:\r\n"
+  "  Slow Motion (Ctrl+Tab):\r\n"
   "   Runs the game at half speed (the sound slows down with it). To step one frame at a time, pause and press the Advance One Frame key, \\ by default.\r\n"
+  "\r\n"
+  "  Fast Forward (Tab), Rewind (Backspace):\r\n"
+  "   Ticked items that keep the game running fast, or backwards, until you untick them (Rewind needs Enable Rewind). The keys themselves work while held; they can be changed under Input > Hotkeys. Only one of Fast Forward, Slow Motion and Rewind is on at a time; Slow Motion is greyed out when no game is running.\r\n"
   "\r\n"
   "VIEW\r\n"
   "  View Mode:\r\n"
@@ -1665,6 +1679,9 @@ static const char menu_guide_text[] =
   "\r\n"
   "  Clean Game Names:\r\n"
   "   The game list shows \"Sonic The Hedgehog\" instead of \"Sonic The Hedgehog (USA, Europe) [!].md\". Only the list changes, not the files.\r\n"
+  "\r\n"
+  "  Show Grid Lines:\r\n"
+  "   Thin horizontal lines between the rows of the lists; the lines between columns are always shown.\r\n"
   "\r\n"
   "  Reset Window Size:\r\n"
   "   Puts the window back at the size chosen under Video > Window Size.\r\n"
@@ -1736,7 +1753,7 @@ static const char menu_guide_text[] =
   "\r\n"
   "INPUT\r\n"
   "  Controls...:\r\n"
-  "   One window with a tab for Player 1 and one for Player 2, laid out around a picture of the pad. Click a button, then press the key or gamepad button you want (right-click a button to clear it; clicking its spot on the picture works too). Right-click A, B, C, X, Y or Z to turn Turbo on for it: held down, it then fires repeatedly. A key or button can only be on one pad button: assigning it takes it off the one that had it (also on the other player, for keys), and a line under the pad says what was removed, and when the key is also a shortcut or the pad button also a gamepad hotkey. Auto Assign goes through them all in turn. Pressing a mapped key or gamepad button lights its spot on the picture, so you can check a pad; tick Test Keys to try keys such as Enter, Tab and Esc without them operating the window. Set keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). The right stick counts as four more buttons (Right Stick Up, Down, Left, Right) that can be assigned like any other; this works for XInput pads and, where the pad reports the stick on its Rx / Ry or Z / Rz axes, for DirectInput ones. Gamepad Hotkeys... opens a window to choose which pad button runs each shortcut, pressed on its own (no Back needed): Fast Forward and Rewind (held), Slow Motion, Save State and Load State (current slot), and Previous and Next Slot. By default the right stick does the last four (up = save, down = load, left = previous slot, right = next slot) and LB / LT are Fast Forward / Rewind. A button used there also reaches the game, so the right stick is a good choice. Xbox-style (XInput) pad of Player 1 only. Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.\r\n"
+  "   One window with a tab for Player 1 and one for Player 2, laid out around a picture of the pad. Click a button, then press the key or gamepad button you want (right-click a button to clear it; clicking its spot on the picture works too). Right-click A, B, C, X, Y or Z to turn Turbo on for it: held down, it then fires repeatedly. A key or button can only be on one pad button: assigning it takes it off the one that had it (also on the other player, for keys), and a line under the pad says what was removed, and when the key is also a shortcut or the pad button also a gamepad hotkey. Auto Assign goes through them all in turn. Pressing a mapped key or gamepad button lights its spot on the picture, so you can check a pad; tick Test Keys to try keys such as Enter, Tab and Esc without them operating the window. Set keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). The right stick counts as four more buttons (Right Stick Up, Down, Left, Right) that can be assigned like any other; this works for XInput pads and, where the pad reports the stick on its Rx / Ry or Z / Rz axes, for DirectInput ones. Gamepad Hotkeys... opens a window to choose which pad button runs each shortcut, pressed on its own (no Back needed): Fast Forward and Rewind (held), Slow Motion, Save State and Load State (current slot), and Previous and Next Slot. By default the right stick does the last four (up = save, down = load, left = previous slot, right = next slot) and LB (Left Bumper) / LT (Left Trigger) are Fast Forward / Rewind. A button used there also reaches the game, so the right stick is a good choice. Xbox-style (XInput) pad of Player 1 only. Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.\r\n"
   "\r\n"
   "  Hotkeys...:\r\n"
   "   Every keyboard shortcut in one list: select an action, click Assign (or double-click it) and press the key you want, alone or with Ctrl, Shift or Alt. A key can only be on one action: the old one loses it. Clear removes a shortcut and Restore Defaults brings the original keys back. The menu labels and the Keyboard Shortcuts window follow your choices. Fast Forward and Rewind (the keys you hold, Tab and Backspace by default) are in the list too; their gamepad buttons are under Controls > Gamepad Hotkeys.\r\n"
@@ -1794,7 +1811,7 @@ static const char menu_guide_text[] =
   "  Show Frame Rate:\r\n"
   "   Frames per second on screen.\r\n"
   "\r\n"
-  "  Show On-Screen Messages:\r\n"
+  "  Show On-Screen Display:\r\n"
   "   Short messages over the picture, such as \"Saved to slot 3\" or the name of a screenshot. Untick to hide them (the status bar still shows them).\r\n"
   "\r\n"
   "HELP\r\n"
@@ -1963,7 +1980,10 @@ static INT_PTR CALLBACK menu_guide_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp
     case WM_CTLCOLORBTN:
     case WM_CTLCOLORLISTBOX:
     {
-      HBRUSH br = theme_ctlcolor((HDC)wp);
+      /* The clickable list of sections is #2D2D2D in dark mode. */
+      HBRUSH br = (GetDlgCtrlID((HWND)lp) == IDC_MENUGUIDE_LIST)
+                ? theme_ctlcolor_custom((HDC)wp, RGB(0x2D, 0x2D, 0x2D), 2)
+                : theme_ctlcolor((HDC)wp);
       if (br) return (LRESULT)br;
       break;
     }
@@ -2005,12 +2025,84 @@ static const char *system_name(void)
   return "Unknown";
 }
 
+static void copy_text_to_clipboard(HWND owner, const char *text)
+{
+  size_t len = strlen(text) + 1;
+  HGLOBAL h;
+
+  if (!OpenClipboard(owner)) return;
+  EmptyClipboard();
+  h = GlobalAlloc(GMEM_MOVEABLE, len);
+  if (h)
+  {
+    char *p = (char *)GlobalLock(h);
+    if (p) { memcpy(p, text, len); GlobalUnlock(h); SetClipboardData(CF_TEXT, h); }
+    else GlobalFree(h);
+  }
+  CloseClipboard();
+}
+
+/* One row of the ROM Information list as "Field<TAB>Value" (just the field for a section title). */
+static void rominfo_row_text(HWND list, int row, char *out, int len)
+{
+  char a[256] = "", b[512] = "";
+
+  ListView_GetItemText(list, row, 0, a, sizeof(a));
+  ListView_GetItemText(list, row, 1, b, sizeof(b));
+  if (b[0]) gui_snprintf(out, len, "%s\t%s", a, b);
+  else lstrcpynA(out, a, len);
+}
+
 static INT_PTR CALLBACK rominfo_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
 {
-  (void)lp;
-
   switch (msg)
   {
+    case WM_CONTEXTMENU:
+    {
+      HWND list = GetDlgItem(dlg, IDC_ROMINFO_TEXT);
+      int sel = ListView_GetNextItem(list, -1, LVNI_SELECTED);
+
+      if ((HWND)wp == list)
+      {
+        POINT pt;
+        HMENU menu;
+        int cmd;
+
+        pt.x = (short)LOWORD(lp);
+        pt.y = (short)HIWORD(lp);
+        if (pt.x == -1 && pt.y == -1) { RECT r; GetWindowRect(list, &r); pt.x = r.left + 20; pt.y = r.top + 20; }
+        else
+        {
+          LVHITTESTINFO hit;
+          POINT cp = pt;
+          ScreenToClient(list, &cp);
+          memset(&hit, 0, sizeof(hit));
+          hit.pt = cp;
+          if (ListView_HitTest(list, &hit) >= 0) { sel = hit.iItem; ListView_SetItemState(list, sel, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED); }
+        }
+        menu = CreatePopupMenu();
+        AppendMenuA(menu, MF_STRING | (sel >= 0 ? 0 : (UINT)MF_GRAYED), 1, "Copy");
+        cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, dlg, NULL);
+        DestroyMenu(menu);
+        if (cmd == 1 && sel >= 0)
+        {
+          char row_text[800];
+          rominfo_row_text(list, sel, row_text, sizeof(row_text));
+          copy_text_to_clipboard(dlg, row_text);
+        }
+        return TRUE;
+      }
+      return FALSE;
+    }
+
+    case WM_TIMER:
+      if (wp == 1)
+      {
+        KillTimer(dlg, 1);
+        SetDlgItemTextA(dlg, IDC_ROMINFO_COPY, "Copy");
+      }
+      return TRUE;
+
     case WM_INITDIALOG:
       theme_apply_to_window(dlg);
       {
@@ -2063,7 +2155,7 @@ static INT_PTR CALLBACK rominfo_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
           else lstrcpyA(ramtxt, "No");
           wsprintfA(crctxt, "%08lX", (unsigned long)crc32(0L, (const Bytef *)cart.rom, (uInt)cart.romsize));
 
-          wsprintfA(text,
+          snprintf(text, sizeof(text),      /* not wsprintf: that stops at 1024 bytes, and a long path would cut the last rows */
             "GAME\r\n"
             "Name:\t%s\r\n"
             "Console:\t%s\r\n"
@@ -2111,10 +2203,64 @@ static INT_PTR CALLBACK rominfo_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
         }
 
         {
-          int tabs[1] = { 80 };
-          SendDlgItemMessage(dlg, IDC_ROMINFO_TEXT, EM_SETTABSTOPS, 1, (LPARAM)tabs);
+          /* "Field<TAB>Value" lines into a two-column list, as in the Keyboard Shortcuts window;
+             a line with no tab is a section title. */
+          HWND list = GetDlgItem(dlg, IDC_ROMINFO_TEXT);
+          LVCOLUMNA col;
+          LVITEMA it;
+          RECT rc;
+          char *line;
+          int row = 0;
+
+          SendMessage(list, LVM_SETEXTENDEDLISTVIEWSTYLE, LVS_EX_FULLROWSELECT, LVS_EX_FULLROWSELECT);
+          GetClientRect(list, &rc);
+          memset(&col, 0, sizeof(col));
+          col.mask = LVCF_TEXT | LVCF_WIDTH;
+          col.pszText = "Field";
+          col.cx = (rc.right - rc.left) * 32 / 100;
+          SendMessageA(list, LVM_INSERTCOLUMNA, 0, (LPARAM)&col);
+          col.pszText = "Value";
+          col.cx = (rc.right - rc.left) * 64 / 100;
+          SendMessageA(list, LVM_INSERTCOLUMNA, 1, (LPARAM)&col);
+
+          for (line = strtok(text, "\r\n"); line; line = strtok(NULL, "\r\n"))
+          {
+            char *tab = strchr(line, '\t');
+            const char *name = line, *value = "";
+            char title[64];
+
+            if (tab) { *tab = '\0'; value = tab + 1; }
+            else
+            {
+              /* A section title: capitals become "Game", "Cartridge Header", "Rom" ... */
+              int k, up = 1;
+              lstrcpynA(title, line, sizeof(title));
+              for (k = 0; title[k]; k++)
+              {
+                if (title[k] == ' ') up = 1;
+                else if (up) up = 0;
+                else if (title[k] >= 'A' && title[k] <= 'Z') title[k] = (char)(title[k] + 32);
+              }
+              if (!lstrcmpA(title, "Rom")) lstrcpyA(title, "ROM");
+              name = title;
+            }
+            memset(&it, 0, sizeof(it));
+            it.mask = LVIF_TEXT;
+            it.iItem = row;
+            it.pszText = (char *)name;
+            SendMessageA(list, LVM_INSERTITEMA, 0, (LPARAM)&it);
+            it.iSubItem = 1;
+            it.pszText = (char *)value;
+            SendMessageA(list, LVM_SETITEMTEXTA, (WPARAM)row, (LPARAM)&it);
+            row++;
+          }
+
+          theme_apply_to_window(dlg);
+          {
+            HWND header = ListView_GetHeader(list);
+            if (header && theme_is_dark()) { SetWindowTheme(header, L"ItemsView", NULL); InvalidateRect(header, NULL, TRUE); }
+          }
         }
-        SetDlgItemTextA(dlg, IDC_ROMINFO_TEXT, text);
       }
       return TRUE;
 
@@ -2129,14 +2275,39 @@ static INT_PTR CALLBACK rominfo_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
     }
 
     case WM_COMMAND:
+      if (LOWORD(wp) == IDC_ROMINFO_COPY)
+      {
+        HWND list = GetDlgItem(dlg, IDC_ROMINFO_TEXT);
+        int i, cnt = ListView_GetItemCount(list);
+        char *all = (char *)malloc((size_t)cnt * 800 + 16);
+
+        if (all)
+        {
+          char row_text[800];
+          all[0] = '\0';
+          for (i = 0; i < cnt; i++)
+          {
+            rominfo_row_text(list, i, row_text, sizeof(row_text));
+            strcat(all, row_text);
+            strcat(all, "\r\n");
+          }
+          copy_text_to_clipboard(dlg, all);
+          free(all);
+          SetDlgItemTextA(dlg, IDC_ROMINFO_COPY, "Copied");
+          SetTimer(dlg, 1, 1500, NULL);
+        }
+        return TRUE;
+      }
       if (LOWORD(wp) == IDOK || LOWORD(wp) == IDCANCEL)
       {
+        KillTimer(dlg, 1);
         EndDialog(dlg, LOWORD(wp));
         return TRUE;
       }
       return FALSE;
 
     case WM_CLOSE:
+      KillTimer(dlg, 1);
       EndDialog(dlg, IDCANCEL);
       return TRUE;
   }
@@ -2551,9 +2722,9 @@ static INT_PTR CALLBACK netplay_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
     {
       HBRUSH br;
 
-      /* The list of hosts: #333333 in dark mode (the same shade as the other lists). */
+      /* The list of hosts: #2D2D2D in dark mode (the same shade as the other lists). */
       if (GetDlgCtrlID((HWND)lp) == IDC_NP_LIST)
-        br = theme_ctlcolor_custom((HDC)wp, RGB(0x33, 0x33, 0x33), 2);
+        br = theme_ctlcolor_custom((HDC)wp, RGB(0x2D, 0x2D, 0x2D), 2);
       else if (msg == WM_CTLCOLOREDIT)      /* the entry boxes stand out from the dialog, as in Cheats */
         br = theme_ctlcolor_custom((HDC)wp, RGB(0x38, 0x38, 0x38), 1);
       else

@@ -3,9 +3,8 @@
  *
  *  history.c -- when each game was last opened (View > Recently Played First).
  *
- *  Kept in history.dat next to the program, one line per game:
- *    last opened (Unix time) <TAB> full path
- *  (Older files with two more numbers in front are still read.)
+ *  Kept in the [history] section of genesis-plus.ini (written by config_save), one entry
+ *  per game: last opened (Unix time) and the full path. The newest 1000 games are kept.
  ****************************************************************************/
 
 #include <windows.h>
@@ -13,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#define H_MAX 1000
 
 #include "shared.h"
 #include "gui.h"
@@ -38,6 +39,14 @@ static int h_find(const char *path)
 
 static int h_add(const char *path)
 {
+  if (h_n >= H_MAX)                      /* full: the game opened longest ago makes room */
+  {
+    int i, old = 0;
+    for (i = 1; i < h_n; i++) if (h_list[i].last < h_list[old].last) old = i;
+    memset(&h_list[old], 0, sizeof(hist_t));
+    lstrcpynA(h_list[old].path, path, GUI_PATH_LEN);
+    return old;
+  }
   if (h_n >= h_cap)
   {
     int cap = h_cap ? h_cap * 2 : 256;
@@ -51,70 +60,30 @@ static int h_add(const char *path)
   return h_n++;
 }
 
-static void history_file(char *out, int len)
-{
-  lstrcpynA(out, osd_path("history.dat"), len);
-}
-
 void history_load(void)
 {
-  char file[GUI_PATH_LEN], line[GUI_PATH_LEN + 80];
-  FILE *fp;
-
   h_n = 0;
   h_current = -1;
-  history_file(file, sizeof(file));
-  fp = fopen(file, "rb");
-  if (!fp) return;
-
-  while (fgets(line, sizeof(line), fp))
-  {
-    unsigned long long last;
-    char *p = line, *path;
-    int idx, tabs = 0;
-
-    for (path = line; *path; path++) if (*path == '\t') tabs++;
-    if (tabs >= 3)                       /* the old layout: seconds, times, last, path */
-    {
-      strtoull(p, &p, 10);
-      if (*p != '\t') continue;
-      strtoull(p + 1, &p, 10);
-      if (*p != '\t') continue;
-      p++;
-    }
-    last = strtoull(p, &p, 10);
-    if (*p != '\t') continue;
-    path = p + 1;
-    path[strcspn(path, "\r\n")] = '\0';
-    if (!path[0]) continue;
-
-    idx = h_add(path);
-    if (idx < 0) break;
-    h_list[idx].last = last;
-  }
-  fclose(fp);
+  config_history_load();
   h_dirty = 0;
 }
 
+void history_restore(const char *path, unsigned long long last)
+{
+  int idx = h_find(path);
+  if (idx < 0) idx = h_add(path);
+  if (idx >= 0) h_list[idx].last = last;
+}
+
+int history_count(void) { return h_n; }
+const char *history_entry_path(int i) { return h_list[i].path; }
+unsigned long long history_entry_last(int i) { return h_list[i].last; }
+
 void history_save(void)
 {
-  char file[GUI_PATH_LEN], tmp[GUI_PATH_LEN + 8];
-  FILE *fp;
-  int i, ok = 1;
-
   if (!h_dirty) return;
-  history_file(file, sizeof(file));
-  wsprintfA(tmp, "%s.tmp", file);
-  fp = fopen(tmp, "wb");
-  if (!fp) return;
-
-  for (i = 0; i < h_n && ok; i++)
-    ok = fprintf(fp, "%llu\t%s\r\n", h_list[i].last, h_list[i].path) >= 0;
-  if (fflush(fp) != 0) ok = 0;
-  if (fclose(fp) != 0) ok = 0;
-
-  if (ok && MoveFileExA(tmp, file, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) h_dirty = 0;
-  else DeleteFileA(tmp);
+  config_save();
+  h_dirty = 0;
 }
 
 /* A game was opened: now is when it was last played. */
@@ -136,6 +105,15 @@ void history_game_started(const char *path)
 void history_game_ended(void)
 {
   h_current = -1;
+  history_save();
+}
+
+/* Forgets every game's last-played time. */
+void history_clear(void)
+{
+  h_n = 0;
+  h_current = -1;
+  h_dirty = 1;
   history_save();
 }
 

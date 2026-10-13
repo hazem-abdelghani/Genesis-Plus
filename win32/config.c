@@ -163,9 +163,13 @@ void set_config_defaults(void)
   gui.np_port             = 55455;
   gui.np_delay            = 2;
   gui.np_addr[0]          = '\0';
+  gui.filter_console[0] = gui.filter_genre[0] = gui.filter_region[0] = '\0';
+  gui.filter_genre_on = 0;
   gui.browser_col_hidden  = 0;
   gui.browser_col_extra   = 0;
   gui.clean_names         = 0;
+  gui.browser_gridlines   = 0;
+  gui.scan_subfolders     = 1;
   gui.browser_sort_column = 0;   /* Name */
   gui.browser_sort_ascending = 1;
   gui.browser_col_pct[0] = 64;
@@ -257,7 +261,7 @@ static int ini_get(const char *section, const char *key, int fallback)
    one go (to a temporary file that then replaces genesis-plus.ini). Writing each key
    with WritePrivateProfileString rewrote the file about 130 times per save, and
    a crash part-way through could leave it half written. */
-#define INI_MAX_ITEMS 900
+#define INI_MAX_ITEMS 3000
 
 typedef struct
 {
@@ -396,9 +400,15 @@ void config_load(void)
   gui.np_port    = clampi(ini_get("netplay", "port", gui.np_port), 1024, 65535);
   gui.np_delay   = clampi(ini_get("netplay", "delay", gui.np_delay), 1, 4);
   ini_get_str("netplay", "address", gui.np_addr, sizeof(gui.np_addr));
+  ini_get_str("general", "filter_console", gui.filter_console, sizeof(gui.filter_console));
+  ini_get_str("general", "filter_genre", gui.filter_genre, sizeof(gui.filter_genre));
+  gui.filter_genre_on = ini_get("general", "filter_genre_on", 0) ? 1 : 0;
+  ini_get_str("general", "filter_region", gui.filter_region, sizeof(gui.filter_region));
   gui.browser_col_hidden = ini_get("video", "browser_col_hidden", gui.browser_col_hidden);
   gui.browser_col_extra = ini_get("video", "browser_col_extra", gui.browser_col_extra) & 1;   /* Genre only */
   gui.clean_names = ini_get("general", "clean_names", gui.clean_names) ? 1 : 0;
+  gui.browser_gridlines = ini_get("general", "browser_row_lines", gui.browser_gridlines) ? 1 : 0;
+  gui.scan_subfolders = ini_get("general", "scan_subfolders", gui.scan_subfolders) ? 1 : 0;
   gui.browser_sort_column = ini_get("video", "browser_sort_column", gui.browser_sort_column);
   if (ini_get("video", "browser_layout_rev", 0) < 2)
   {
@@ -466,6 +476,17 @@ void config_load(void)
       {
         if (!lstrcmpA(hotkey_name(k), "Fast Forward (hold)")) gui.hotkey[k] = ini_get("input", "key_fast_forward", hotkey_default(k));
         if (!lstrcmpA(hotkey_name(k), "Rewind (hold)"))       gui.hotkey[k] = ini_get("input", "key_rewind", hotkey_default(k));
+      }
+    }
+    /* Slow Motion got Ctrl+Tab after it was saved with no key. */
+    if (ini_get("hotkeys", "rev", 0) < 6)
+    {
+      for (k = 0; k < hotkeys_count(); k++)
+      {
+        int j, used = 0;
+        if (lstrcmpA(hotkey_name(k), "Slow Motion") || gui.hotkey[k]) continue;
+        for (j = 0; j < hotkeys_count(); j++) if (gui.hotkey[j] == hotkey_default(k)) used = 1;
+        if (!used) gui.hotkey[k] = hotkey_default(k);
       }
     }
     /* Newer default keys: applied once to settings saved with the older ones. */
@@ -727,9 +748,15 @@ void config_save(void)
   ini_put("netplay", "port", gui.np_port);
   ini_put("netplay", "delay", gui.np_delay);
   ini_put_str("netplay", "address", gui.np_addr);
+  ini_put_str("general", "filter_console", gui.filter_console);
+  ini_put_str("general", "filter_genre", gui.filter_genre);
+  ini_put("general", "filter_genre_on", gui.filter_genre_on);
+  ini_put_str("general", "filter_region", gui.filter_region);
   ini_put("video", "browser_col_hidden", gui.browser_col_hidden);
   ini_put("video", "browser_col_extra", gui.browser_col_extra);
   ini_put("general", "clean_names", gui.clean_names);
+  ini_put("general", "browser_row_lines", gui.browser_gridlines);
+  ini_put("general", "scan_subfolders", gui.scan_subfolders);
   ini_put("video", "browser_sort_column", gui.browser_sort_column);
   ini_put("video", "browser_sort_ascending", gui.browser_sort_ascending);
   ini_put("video", "browser_layout_rev", 2);
@@ -767,7 +794,7 @@ void config_save(void)
       hotkey_ini_key(k, hkey, sizeof(hkey));
       ini_put("hotkeys", hkey, gui.hotkey[k]);
     }
-    ini_put("hotkeys", "rev", 5);
+    ini_put("hotkeys", "rev", 6);
   }
   ini_put("audio", "mute_fm", gui.mute_fm);
   ini_put("audio", "mute_psg", gui.mute_psg);
@@ -873,7 +900,41 @@ void config_save(void)
     ini_put_str("favorites", key, fav_list[i]);
   }
 
+  /* When each game was last opened (history.c): "<Unix time>|<path>". */
+  {
+    int n = history_count();
+    ini_put("history", "count", n);
+    for (i = 0; i < n; i++)
+    {
+      char val[GUI_PATH_LEN];
+      wsprintfA(key, "game%d", i);
+      wsprintfA(val, "%lu|", (unsigned long)history_entry_last(i));   /* wsprintf has no %llu */
+      lstrcpynA(val + lstrlenA(val), history_entry_path(i), (int)sizeof(val) - lstrlenA(val));
+      ini_put_str("history", key, val);
+    }
+  }
+
   ini_flush();
+}
+
+/* Reads the [history] section back into history.c. */
+void config_history_load(void)
+{
+  int i, n;
+  char key[40], val[GUI_PATH_LEN];
+
+  ini_init_path();
+  n = ini_get("history", "count", 0);
+  for (i = 0; i < n && i < 1000; i++)
+  {
+    char *bar;
+    wsprintfA(key, "game%d", i);
+    ini_get_str("history", key, val, sizeof(val));
+    bar = strchr(val, '|');
+    if (!bar || !bar[1]) continue;
+    *bar = '\0';
+    history_restore(bar + 1, strtoull(val, NULL, 10));
+  }
 }
 
 /****************************************************************************

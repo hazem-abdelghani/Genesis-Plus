@@ -156,6 +156,12 @@ typedef struct
   int fullscreen_on_load;  /* persists across runs, unlike fullscreen itself --
                                enters fullscreen automatically whenever a ROM loads */
   int show_fps;
+  int browser_gridlines;   /* lines between the columns of the game list */
+  int scan_subfolders;     /* the ROMs directory is searched including its subfolders */
+  char filter_console[40]; /* the filter bar choices, kept between runs ("" = all) */
+  char filter_genre[28];
+  int  filter_genre_on;    /* filter_genre is "" for an unknown genre, so it needs its own flag */
+  char filter_region[24];
   int clean_names;         /* the game list shows names without the (...) and [...] tags */
   int recent_mode;         /* the last few games are grouped at the top of the list */
   int favorites_only;      /* the game list shows only the favorites */

@@ -719,6 +719,11 @@ static void update_slot_menu_labels(HMENU slot_menu, int base)
       else
         wsprintfA(label, "Slot &%d - Empty", i);
     }
+    {
+      char keys[64];
+      hotkey_menu_keys(base + i, keys, sizeof(keys));
+      if (keys[0] && lstrlenA(label) + lstrlenA(keys) + 2 < (int)sizeof(label)) { lstrcatA(label, "\t"); lstrcatA(label, keys); }
+    }
     menu_set_text(slot_menu, base + i, label);
     if (base == IDM_FILE_LOADSLOT_BASE)      /* nothing to load from an empty slot */
     {
@@ -812,6 +817,8 @@ void gui_update_menu(void)
     }
   }
   CheckMenuItem(g_menu, IDM_VIEW_SORT_RECENT, MF_BYCOMMAND | (gui.recent_mode ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(g_menu, IDM_VIEW_GRIDLINES, MF_BYCOMMAND | (gui.browser_gridlines ? MF_CHECKED : MF_UNCHECKED));
+  EnableMenuItem(g_menu, IDM_VIEW_GRIDLINES, MF_BYCOMMAND | (gui.browser_grid_view ? (MF_GRAYED | MF_DISABLED) : MF_ENABLED));
   CheckMenuItem(g_menu, IDM_VIEW_CLEANNAMES, MF_BYCOMMAND | (gui.clean_names ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_VIEW_FAVONLY, MF_BYCOMMAND | (browser_favorites_only() ? MF_CHECKED : MF_UNCHECKED));
   EnableMenuItem(g_menu, IDM_VIEW_FAVONLY, MF_BYCOMMAND | (emu_running ? MF_GRAYED : MF_ENABLED));
@@ -876,6 +883,11 @@ void gui_update_menu(void)
   CheckMenuItem(g_menu, IDM_AUDIO_MONO,
                 MF_BYCOMMAND | (config.mono ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_EMU_SLOWMO, MF_BYCOMMAND | (gui.slowmo ? MF_CHECKED : MF_UNCHECKED));
+  EnableMenuItem(g_menu, IDM_EMU_SLOWMO, MF_BYCOMMAND | (emu_running ? MF_ENABLED : (MF_GRAYED | MF_DISABLED)));
+  CheckMenuItem(g_menu, IDM_EMU_FASTFWD, MF_BYCOMMAND | (gui_input_ff_latched() ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(g_menu, IDM_EMU_REWINDNOW, MF_BYCOMMAND | (gui_input_rewind_latched() ? MF_CHECKED : MF_UNCHECKED));
+  EnableMenuItem(g_menu, IDM_EMU_FASTFWD, MF_BYCOMMAND | ((emu_running && !netplay_active()) ? MF_ENABLED : (MF_GRAYED | MF_DISABLED)));
+  EnableMenuItem(g_menu, IDM_EMU_REWINDNOW, MF_BYCOMMAND | ((emu_running && gui.rewind && !netplay_active()) ? MF_ENABLED : (MF_GRAYED | MF_DISABLED)));
   CheckMenuItem(g_menu, IDM_AUDIO_MUTE_FM, MF_BYCOMMAND | (gui.mute_fm ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_AUDIO_MUTE_PSG, MF_BYCOMMAND | (gui.mute_psg ? MF_CHECKED : MF_UNCHECKED));
   CheckMenuItem(g_menu, IDM_VIDEO_INTSCALE, MF_BYCOMMAND | (gui.integer_scale ? MF_CHECKED : MF_UNCHECKED));
@@ -1771,6 +1783,7 @@ void emu_close_rom(void)
   if (gui.fullscreen) video_set_fullscreen(0);
   undo_valid = 0;
   usave_valid = 0;
+  gui_input_clear_latches();
   rewind_reset();
   rom_path[0] = '\0';
   rom_base[0] = '\0';
@@ -2379,7 +2392,7 @@ static int np_command_locked(int id)
 
   if (id == IDM_EMU_PAUSE || id == IDM_EMU_RESET || id == IDM_EMU_HARDRESET) return 1;
   if (id == IDM_FILE_SAVESTATE || id == IDM_FILE_LOADSTATE || id == IDM_FILE_STATEMGR) return 1;
-  if (id == IDM_EMU_UNDOLOAD || id == IDM_EMU_UNDOSAVE) return 1;
+  if (id == IDM_EMU_UNDOLOAD || id == IDM_EMU_UNDOSAVE || id == IDM_EMU_FASTFWD || id == IDM_EMU_REWINDNOW) return 1;
   if (id >= IDM_FILE_LOADSLOT_BASE && id < IDM_FILE_LOADSLOT_BASE + GUI_SLOT_MAX) return 1;
   if (id >= IDM_FILE_SAVESLOT_BASE && id < IDM_FILE_SAVESLOT_BASE + GUI_SLOT_MAX) return 1;
   if (id >= IDM_ACCEL_QUICKSAVE && id <= IDM_ACCEL_SLOT_PREV) return 1;
@@ -3283,6 +3296,23 @@ static void on_command(int id)
     return;
   }
 
+  if (id == IDM_VIEW_GRIDLINES)
+  {
+    gui.browser_gridlines = !gui.browser_gridlines;
+    browser_redraw();
+    gui_update_menu();
+    config_save();
+    return;
+  }
+
+  if (id == IDM_VIEW_SCANSUB)
+  {
+    gui.scan_subfolders = !gui.scan_subfolders;
+    browser_rescan_now();
+    config_save();
+    return;
+  }
+
   if (id == IDM_VIEW_CLEANNAMES)
   {
     gui.clean_names = !gui.clean_names;
@@ -3566,8 +3596,25 @@ static void on_command(int id)
       break;
     }
 
+    case IDM_EMU_FASTFWD:
+      if (gui.slowmo) { gui.slowmo = 0; waveout_flush(); config_save(); }
+      gui_input_toggle_ff();
+      next_frame_time = 0.0;
+      gui_notify(gui_input_ff_latched() ? "Fast forward on" : "Fast forward off");
+      gui_update_menu();
+      break;
+
+    case IDM_EMU_REWINDNOW:
+      if (gui.slowmo) { gui.slowmo = 0; waveout_flush(); config_save(); }
+      gui_input_toggle_rewind();
+      next_rewind_time = 0.0;
+      gui_notify(gui_input_rewind_latched() ? "Rewinding" : "Rewind off");
+      gui_update_menu();
+      break;
+
     case IDM_EMU_SLOWMO:
       gui.slowmo = !gui.slowmo;
+      if (gui.slowmo) gui_input_clear_latches();
       waveout_flush();
       next_frame_time = 0.0;
       gui_notify(gui.slowmo ? "Slow motion" : "Normal speed");
@@ -3676,6 +3723,7 @@ static void on_command(int id)
         gui.rewind = 0;
         gui_status("Not enough memory for the rewind history");
       }
+      if (!gui.rewind && gui_input_rewind_latched()) gui_input_toggle_rewind();   /* nothing to rewind with */
       gui_update_menu();
       config_save();
       break;
@@ -3896,6 +3944,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
       /* Fullscreen has no title bar: the system paints the menu bar light then, so it is painted dark here. */
       LRESULT r = DefWindowProc(hwnd, msg, wp, lp);
       if (gui.fullscreen) theme_paint_menubar(hwnd, 1);
+      else theme_paint_menu_line(hwnd, NULL);
       return r;
     }
 
@@ -4349,13 +4398,22 @@ static void parse_command_line(char *rom, int rom_len)
   LocalFree(argv);
 }
 
-/* Ctrl+C / X / V / A / Z with the focus in a text box is copy and friends, not a program shortcut
+/* Ctrl+C / X / V / A / Z, and the digits, with the focus in a text box are copy and typing, not a program shortcut
    (Ctrl+C is Cheats). */
 static int is_text_edit_key(const MSG *m)
 {
   char cls[16];
   HWND f;
 
+  if (m->message == WM_KEYDOWN && m->wParam >= '0' && m->wParam <= '9' &&
+      !(GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000))
+  {
+    /* Digits (the state slot shortcuts) are typing when a text box has the focus, and, with no game
+       running, the list's type-ahead ("1943", "688 Attack Sub"): a state shortcut has nothing to do then. */
+    if (!emu_running) return 1;
+    f = GetFocus();
+    return f && GetClassNameA(f, cls, sizeof(cls)) && !lstrcmpiA(cls, "Edit");
+  }
   if (m->message != WM_KEYDOWN || !(GetKeyState(VK_CONTROL) & 0x8000)) return 0;
   if (m->wParam != 'C' && m->wParam != 'X' && m->wParam != 'V' && m->wParam != 'A' && m->wParam != 'Z') return 0;
   f = GetFocus();

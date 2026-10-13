@@ -264,7 +264,7 @@ maximized state between runs.
 | Right Shift | Mode |
 
 A connected gamepad works with no setup, laid out the way a 6-button Control
-Pad expects: the left stick and D-pad move, the Xbox X, A and B buttons give A, B and C, Y gives X, RB gives Y, RT gives Z, Start is Start and Back is Mode. LB fast-forwards and LT rewinds.
+Pad expects: the left stick and D-pad move, the Xbox X, A and B buttons give A, B and C, Y gives X, RB (Right Bumper) gives Y, RT (Right Trigger) gives Z, Start is Start and Back is Mode. LB (Left Bumper) fast-forwards and LT (Left Trigger) rewinds.
 Change any of it under **Input → Controls**.
 **Input → Enable Background Input** keeps the controls working while another
 window has focus (keyboard pad keys and gamepads only; hotkeys and the mouse
@@ -277,23 +277,26 @@ still need the emulator window to be active).
 | Ctrl+O | Open a ROM |
 | Ctrl+R | ROMs Directory |
 | Ctrl+W | Close the ROM |
-| F4 / Ctrl+F4 | Reset / hard reset |
-| Ctrl+C | Cheats |
-| Ctrl+F | Show / hide the search bar |
 | F2 | Pause and resume |
 | F3 | Stop the ROM |
+| F4 / Ctrl+F4 | Reset / hard reset |
 | F5 / F8 | Save / load the current slot |
+| 0 - 9 | Load state from that slot |
+| Shift+0 - Shift+9 | Save state to that slot |
 | F6 / F7 | Previous / next slot |
 | Ctrl+F8 / Ctrl+F5 | Undo the last state load / save |
+| Tab (Hold) | Fast forward |
+| Ctrl+Tab | Slow motion on / off |
+| Backspace (Hold) | Rewind (the keys can be changed under Input > Hotkeys) |
+| `\` | Advance one frame while paused |
+| Ctrl+F | Show / hide the search bar |
+| Alt+Enter / Esc | Toggle fullscreen |
 | Ctrl+M / Ctrl+N / Ctrl+B | Mute / mute FM / mute PSG |
-| F12 | Save a screenshot |
+| Ctrl+C | Cheats |
 | Shift+F11 | Record video + audio (start / stop) |
 | Ctrl+F11 | Record audio only (start / stop) |
 | Alt+F11 | Stop recording |
-| Alt+Enter / Esc | Toggle fullscreen |
-| Tab (Hold) | Fast forward |
-| Backspace (Hold) | Rewind (the keys can be changed under Input > Hotkeys) |
-| `\` | Advance one frame while paused |
+| F12 | Save a screenshot |
 
 Assigning a control works by listening rather than by picking from a list:
 select a button, choose Assign, then press what you want it to be. The same
@@ -555,7 +558,7 @@ The same page is in the program under **Help → Menu Guide**.
 **File**
 
 - **Open ROM... (Ctrl+O)** – Pick a game file to play: Mega Drive / Genesis, Master System, Game Gear, SG-1000, Mega CD, or a .zip / .7z / .gz that holds one.
-- **ROMs Directory... (Ctrl+R)** – Shows the game browser for a folder of games. Double-click a game to play it, right-click for more choices (play with a saved state, cheats, cover image).
+- **ROMs Directory... (Ctrl+R)** – Shows the game browser for a folder of games. Double-click a game to play it, right-click for more choices (play with a saved state, cheats, cover image, clear the recently played list: it is greyed when there is nothing to clear). Folders inside it are searched too (Settings > General > Scan ROMs Subfolders, on by default).
 - **Recent Files** – Your last games, each shown with its console.
 - **Close ROM (Ctrl+W)** – Stops the game.
 - **ROM Information...** – The game's name, console, genre, favorite state, file size and location, the CRC32, the cartridge header (console name, type, titles, product code, region, copyright, supported controllers, save RAM), and the ROM size and checksum.
@@ -566,14 +569,15 @@ The same page is in the program under **Help → Menu Guide**.
 
 - **Pause (F2 / Pause), Stop (F3)** – Freeze the game, or end it.
 - **Reset (F4), Hard Reset (Ctrl+F4)** – Reset is the console's reset button. Hard Reset power-cycles the console (saved game data is kept).
-- **Load State** – Load State from Selected Slot (F8) restores the exact moment saved in the selected slot. Load State from Slot loads any of the slots 0-9 directly, whichever is selected (empty slots are greyed). Undo Load State (Ctrl+F8) puts the game back as it was just before the last load; one level, cleared when the game is closed.
-- **Save State** – Save State to Selected Slot (F5) saves the exact moment into the selected slot. Save State to Slot saves into any of the slots 0-9 directly. Undo Save State puts the slot back as it was before the last save (or empties it if it was empty); one level, cleared when the game is closed.
+- **Load State** – Load State from Selected Slot (F8) restores the exact moment saved in the selected slot. Load State from Slot (keys 0-9) loads any of the slots 0-9 directly, whichever is selected (empty slots are greyed). Undo Load State (Ctrl+F8) puts the game back as it was just before the last load; one level, cleared when the game is closed.
+- **Save State** – Save State to Selected Slot (F5) saves the exact moment into the selected slot. Save State to Slot (Shift+0 - Shift+9) saves into any of the slots 0-9 directly. Undo Save State puts the slot back as it was before the last save (or empties it if it was empty); one level, cleared when the game is closed.
 - **Select State Slot** – Choose slot 0-9 for F5 / F8 (F6 / F7 = previous / next). Each entry shows when the slot was last saved.
 - **Manage States...** – Thumbnails of all ten slots: left-click loads one, right-click saves or deletes.
 - **Enable Rewind (Backspace, Hold)** – Keeps a history of recent play so holding Backspace runs it backwards. Uses about 200 MB and some CPU while on; switch it off if you never rewind. Not available during netplay.
 - **Pause When Inactive** – Pauses the game while another window has focus.
 - **Auto Resume** – Saves the game when you close it (or quit) and, the next time you open that game, asks whether to carry on from there. The question has a "Do not ask again" box that remembers your answer; the Restore Dialog button next to Auto Resume in Settings brings it back. It uses a state of its own, so your ten save slots are untouched.
-- **Slow Motion** – Runs the game at half speed (the sound slows down with it). To step one frame at a time, pause and press the Advance One Frame key, \ by default.
+- **Slow Motion (Ctrl+Tab)** – Runs the game at half speed (the sound slows down with it). To step one frame at a time, pause and press the Advance One Frame key, \ by default.
+- **Fast Forward (Tab), Rewind (Backspace)** – Ticked items that keep the game running fast, or backwards, until you untick them (Rewind needs Enable Rewind). The keys themselves work while held; they can be changed under Input > Hotkeys. Only one of Fast Forward, Slow Motion and Rewind is on at a time, and Slow Motion is greyed out when no game is running.
 
 **View**
 
@@ -585,6 +589,7 @@ The same page is in the program under **Help → Menu Guide**.
 - **Show Toolbar, Show Search Bar (Ctrl+F), Show Filter Bar** – Switch the rows above the game list on or off. The toolbar has buttons for open ROM, refresh, favorites only, play, pause, stop, reset, switch fullscreen, screenshot, settings, the Video and Audio settings tabs and the player controls; a star button next to Refresh shows only your favorites. The toolbar stays above the game while it runs in a window; in fullscreen it slides in at the top edge of the screen together with the menu bar (View > Toolbar in Fullscreen switches that on; it is off to start with). The search bar narrows the list as you type (Ctrl+F jumps to it; Close or Show Search Bar hides it, and Show Search Bar brings it back). The filter bar narrows it by console, genre (looked up from the game's title in a table built into the program; a game that is not in it is listed as Unknown) and region (read from tags such as (USA) in the file name).
 - **Show Recently Played** – Shows the last few games you opened as a group at the top of the list, above all the others. Choose it again to switch it off.
 - **Clean Game Names** – The game list shows "Sonic The Hedgehog" instead of "Sonic The Hedgehog (USA, Europe) [!].md". Only the list changes, not the files.
+- **Show Grid Lines** – Thin horizontal lines between the rows of the lists (the game list in list view, and the lists in other windows); the lines between columns are always shown. Also in Settings > General.
 - **Reset Window Size** – Puts the window back at the size chosen under Video → Window Size.
 
 **Video**
@@ -617,7 +622,7 @@ The same page is in the program under **Help → Menu Guide**.
 **Input**
 
 - **Hotkeys...** – Every keyboard shortcut in one list: select an action, click Assign (or double-click it) and press the key you want, alone or with Ctrl, Shift or Alt. A key can only be on one action: the old one loses it. Clear removes a shortcut and Restore Defaults brings the original keys back. The menu labels and the Keyboard Shortcuts window follow your choices. Fast Forward and Rewind (the keys you hold, Tab and Backspace by default) are in the list too; their gamepad buttons are under Controls > Gamepad Hotkeys.
-- **Controls...** – One window with a tab for Player 1 and one for Player 2, laid out around a picture of the pad. Click a button, then press the key or gamepad button you want (right-click a button to clear it; clicking its spot on the picture works too). Right-click A, B, C, X, Y or Z to turn Turbo on for it: held down, it then fires repeatedly. A key or button can only be on one pad button: assigning it takes it off the one that had it (also on the other player, for keys), and a line under the pad says what was removed, and when the key is also a shortcut or the pad button also a gamepad hotkey. Auto Assign goes through them all in turn. Pressing a mapped key or gamepad button lights its spot on the picture, so you can check a pad; tick Test Keys to try keys such as Enter, Tab and Esc without them operating the window. Set keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). The right stick counts as four more buttons (Right Stick Up, Down, Left, Right) that can be assigned like any other; this works for XInput pads and, where the pad reports the stick on its Rx / Ry or Z / Rz axes, for DirectInput ones. Gamepad Hotkeys... opens a window to choose which pad button runs each shortcut, pressed on its own (no Back needed): Fast Forward and Rewind (held), Slow Motion, Save State and Load State (current slot), and Previous and Next Slot. By default the right stick does the last four (up = save, down = load, left = previous slot, right = next slot) and LB / LT are Fast Forward / Rewind. A button used there also reaches the game, so the right stick is a good choice. Xbox-style (XInput) pad of Player 1 only. Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.
+- **Controls...** – One window with a tab for Player 1 and one for Player 2, laid out around a picture of the pad. Click a button, then press the key or gamepad button you want (right-click a button to clear it; clicking its spot on the picture works too). Right-click A, B, C, X, Y or Z to turn Turbo on for it: held down, it then fires repeatedly. A key or button can only be on one pad button: assigning it takes it off the one that had it (also on the other player, for keys), and a line under the pad says what was removed, and when the key is also a shortcut or the pad button also a gamepad hotkey. Auto Assign goes through them all in turn. Pressing a mapped key or gamepad button lights its spot on the picture, so you can check a pad; tick Test Keys to try keys such as Enter, Tab and Esc without them operating the window. Set keyboard keys and gamepad buttons, and set the gamepad thumbstick's deadzone (how far it has to move off-center before it registers at all). The right stick counts as four more buttons (Right Stick Up, Down, Left, Right) that can be assigned like any other; this works for XInput pads and, where the pad reports the stick on its Rx / Ry or Z / Rz axes, for DirectInput ones. Gamepad Hotkeys... opens a window to choose which pad button runs each shortcut, pressed on its own (no Back needed): Fast Forward and Rewind (held), Slow Motion, Save State and Load State (current slot), and Previous and Next Slot. By default the right stick does the last four (up = save, down = load, left = previous slot, right = next slot) and LB (Left Bumper) / LT (Left Trigger) are Fast Forward / Rewind. A button used there also reaches the game, so the right stick is a good choice. Xbox-style (XInput) pad of Player 1 only. Player 1 defaults: arrows, Z X C = A B C, A S D = X Y Z, Enter = Start, Right Shift = Mode.
 - **Port A / Port B Device** – What is plugged in: Control Pad, Mouse, a light gun (Light Phaser, Menacer or Justifier, depending on the port), XE-1AP analog joystick, Activator, Paddle Control, Sports Pad, Graphic Board (Pico's drawing tablet), or a 4-player Team Player adapter — not every device is on both ports.
 - **Enable Background Input** – Keep reading the controller while another window has focus.
 
@@ -640,7 +645,7 @@ The same page is in the program under **Help → Menu Guide**.
 - **Emulate Address Error Exceptions** – Hardware-accurate crashes on bad memory access; turn off only for a few hacked games.
 - **Show Extended Game Gear Screen** – Show the whole Game Gear picture instead of only the part its screen displayed.
 - **Show Master System Side Borders** – Off by default, which crops the 8-pixel columns at each side; tick to show them.
-- **Show On-Screen Messages** – Short messages over the picture, such as "Saved to slot 3" or the name of a screenshot. Untick to hide them (the status bar still shows them).
+- **Show On-Screen Display** – Short messages over the picture, such as "Saved to slot 3" or the name of a screenshot. Untick to hide them (the status bar still shows them).
 - **Show Frame Rate** – Frames per second on screen.
 
 **Help**

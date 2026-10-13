@@ -37,36 +37,56 @@ typedef struct
 
 static const hk_t hk[] =
 {
+  { "Keyboard Shortcuts",             IDM_HELP_SHORTCUTS,          VK_F1 },
   { "Open ROM",                       IDM_FILE_OPEN,               K_CTRL | 'O' },
   { "ROMs Directory",                 IDM_FILE_BROWSER,            K_CTRL | 'R' },
   { "Close ROM",                      IDM_FILE_CLOSE,              K_CTRL | 'W' },
-  { "Show / Hide the Search Bar",     IDM_VIEW_FINDSEARCH,         K_CTRL | 'F' },
   { "Pause and Resume",               IDM_EMU_PAUSE,               VK_F2 },
   { "Pause and Resume (second key)",  IDM_EMU_PAUSE,               VK_PAUSE },
   { "Stop",                           IDM_EMU_STOP,                VK_F3 },
   { "Reset",                          IDM_EMU_RESET,               VK_F4 },
   { "Hard Reset",                     IDM_EMU_HARDRESET,           K_CTRL | VK_F4 },
-  { "Save State (current slot)",      IDM_ACCEL_QUICKSAVE,         VK_F5 },
   { "Load State (current slot)",      IDM_ACCEL_QUICKLOAD,         VK_F8 },
+  { "Load State from Slot 0",          IDM_FILE_LOADSLOT_BASE + 0,  '0' },
+  { "Load State from Slot 1",          IDM_FILE_LOADSLOT_BASE + 1,  '1' },
+  { "Load State from Slot 2",          IDM_FILE_LOADSLOT_BASE + 2,  '2' },
+  { "Load State from Slot 3",          IDM_FILE_LOADSLOT_BASE + 3,  '3' },
+  { "Load State from Slot 4",          IDM_FILE_LOADSLOT_BASE + 4,  '4' },
+  { "Load State from Slot 5",          IDM_FILE_LOADSLOT_BASE + 5,  '5' },
+  { "Load State from Slot 6",          IDM_FILE_LOADSLOT_BASE + 6,  '6' },
+  { "Load State from Slot 7",          IDM_FILE_LOADSLOT_BASE + 7,  '7' },
+  { "Load State from Slot 8",          IDM_FILE_LOADSLOT_BASE + 8,  '8' },
+  { "Load State from Slot 9",          IDM_FILE_LOADSLOT_BASE + 9,  '9' },
+  { "Undo Load State",                IDM_EMU_UNDOLOAD,            K_CTRL | VK_F8 },
+  { "Save State (current slot)",      IDM_ACCEL_QUICKSAVE,         VK_F5 },
+  { "Save State to Slot 0",            IDM_FILE_SAVESLOT_BASE + 0,  K_SHIFT | '0' },
+  { "Save State to Slot 1",            IDM_FILE_SAVESLOT_BASE + 1,  K_SHIFT | '1' },
+  { "Save State to Slot 2",            IDM_FILE_SAVESLOT_BASE + 2,  K_SHIFT | '2' },
+  { "Save State to Slot 3",            IDM_FILE_SAVESLOT_BASE + 3,  K_SHIFT | '3' },
+  { "Save State to Slot 4",            IDM_FILE_SAVESLOT_BASE + 4,  K_SHIFT | '4' },
+  { "Save State to Slot 5",            IDM_FILE_SAVESLOT_BASE + 5,  K_SHIFT | '5' },
+  { "Save State to Slot 6",            IDM_FILE_SAVESLOT_BASE + 6,  K_SHIFT | '6' },
+  { "Save State to Slot 7",            IDM_FILE_SAVESLOT_BASE + 7,  K_SHIFT | '7' },
+  { "Save State to Slot 8",            IDM_FILE_SAVESLOT_BASE + 8,  K_SHIFT | '8' },
+  { "Save State to Slot 9",            IDM_FILE_SAVESLOT_BASE + 9,  K_SHIFT | '9' },
+  { "Undo Save State",                IDM_EMU_UNDOSAVE,            K_CTRL | VK_F5 },
   { "Previous Slot",                  IDM_ACCEL_SLOT_PREV,         VK_F6 },
   { "Next Slot",                      IDM_ACCEL_SLOT_NEXT,         VK_F7 },
-  { "Undo Load State",                IDM_EMU_UNDOLOAD,            K_CTRL | VK_F8 },
-  { "Undo Save State",                IDM_EMU_UNDOSAVE,            K_CTRL | VK_F5 },
   { "Advance One Frame While Paused", HK_FRAMEADV,                 VK_OEM_5 },
   { "Fast Forward (hold)",            HK_FASTFWD,                  VK_TAB },
+  { "Slow Motion",                    IDM_EMU_SLOWMO,              K_CTRL | VK_TAB },
   { "Rewind (hold)",                  HK_REWIND,                   VK_BACK },
-  { "Slow Motion",                    IDM_EMU_SLOWMO,              0 },
-  { "Cheats",                         IDM_EMU_CHEATS,              K_CTRL | 'C' },
+  { "Show / Hide the Search Bar",     IDM_VIEW_FINDSEARCH,         K_CTRL | 'F' },
   { "Fullscreen",                     IDM_VIDEO_FULLSCREEN,        K_ALT | VK_RETURN },
   { "Leave Fullscreen",               IDM_ACCEL_LEAVE_FULLSCREEN,  VK_ESCAPE },
-  { "Save a Screenshot",              IDM_FILE_SCREENSHOT,         VK_F12 },
-  { "Record Video + Audio",           IDM_FILE_REC_VIDEO,          K_SHIFT | VK_F11 },
-  { "Record Audio Only",              IDM_FILE_REC_AUDIO,          K_CTRL | VK_F11 },
-  { "Stop Recording",                 IDM_FILE_REC_STOP,           K_ALT | VK_F11 },
   { "Mute",                           IDM_AUDIO_ENABLE,            K_CTRL | 'M' },
   { "Mute FM Sound",                 IDM_AUDIO_MUTE_FM,           K_CTRL | 'N' },
   { "Mute PSG Sound",                IDM_AUDIO_MUTE_PSG,          K_CTRL | 'B' },
-  { "Keyboard Shortcuts",             IDM_HELP_SHORTCUTS,          VK_F1 },
+  { "Cheats",                         IDM_EMU_CHEATS,              K_CTRL | 'C' },
+  { "Record Video + Audio",           IDM_FILE_REC_VIDEO,          K_SHIFT | VK_F11 },
+  { "Record Audio Only",              IDM_FILE_REC_AUDIO,          K_CTRL | VK_F11 },
+  { "Stop Recording",                 IDM_FILE_REC_STOP,           K_ALT | VK_F11 },
+  { "Save a Screenshot",              IDM_FILE_SCREENSHOT,         VK_F12 },
 };
 #define HK_N ((int)(sizeof(hk) / sizeof(hk[0])))
 
@@ -176,6 +196,22 @@ HACCEL hotkeys_build_accel(void)
   return n ? CreateAcceleratorTableA(a, n) : NULL;
 }
 
+/* The shortcut(s) of a menu command, joined with " / ", or "" if it has none. */
+void hotkey_menu_keys(int cmd, char *out, int len)
+{
+  int j;
+  out[0] = '\0';
+  for (j = 0; j < HK_N; j++)
+  {
+    char one[64];
+    if (hk[j].cmd != cmd) continue;
+    hotkey_text(gui.hotkey[j], one, sizeof(one));
+    if (!one[0] || lstrlenA(out) + lstrlenA(one) + 4 >= len) continue;
+    if (out[0]) lstrcatA(out, " / ");
+    lstrcatA(out, one);
+  }
+}
+
 /* Rewrites the "\tShortcut" part of the menu items to match the current shortcuts. */
 static void set_item_text(HMENU menu, UINT id, const char *text)
 {
@@ -269,7 +305,34 @@ void hotkeys_describe(char *out, int len)
   for (i = 0; i < HK_N; i++)
   {
     char one[64], line[160];
-    hotkey_text(gui.hotkey[i], one, sizeof(one));
+    int base = hk[i].cmd == IDM_FILE_LOADSLOT_BASE ? IDM_FILE_LOADSLOT_BASE : hk[i].cmd == IDM_FILE_SAVESLOT_BASE ? IDM_FILE_SAVESLOT_BASE : 0;
+
+    /* The ten slot rows (Load State from Slot 0 ... 9) are one line when they are consecutive digits. */
+    if (base && i + 9 < HK_N)
+    {
+      int k, same = 1, mods = gui.hotkey[i] & ~0xFFFF;
+      for (k = 0; k < 10; k++)
+        if (hk[i + k].cmd != base + k || gui.hotkey[i + k] != (mods | ('0' + k))) same = 0;
+      if (same)
+      {
+        hotkey_text(gui.hotkey[i], one, sizeof(one));
+        one[lstrlenA(one) - 1] = '\0';          /* "Shift+0" -> "Shift+" */
+        wsprintfA(line, "%s\t%s0-9\r\n", base == IDM_FILE_LOADSLOT_BASE ? "Load State from Slot 0-9" : "Save State to Slot 0-9", one);
+        if (lstrlenA(out) + lstrlenA(line) < len - 1) lstrcatA(out, line);
+        i += 9;
+        continue;
+      }
+    }
+    {
+      int j, again = 0;                  /* a second key for the same action is part of its first row */
+      for (j = 0; j < i; j++) if (hk[j].cmd == hk[i].cmd) again = 1;
+      if (again) continue;
+    }
+    {
+      char keys[96];
+      hotkey_menu_keys(hk[i].cmd, keys, sizeof(keys));
+      lstrcpynA(one, keys, sizeof(one));
+    }
     if (!one[0]) continue;
     wsprintfA(line, "%s\t%s\r\n", hk[i].name, one);
     if (lstrlenA(out) + lstrlenA(line) < len - 1) lstrcatA(out, line);
@@ -537,7 +600,7 @@ typedef struct { const char *name; int cmd; int def; } ph_t;
    no game button uses. */
 static const ph_t ph[] =
 {
-  { "Fast Forward (hold)",        0,                    0x0100 },       /* LB */
+  { "Fast Forward (hold)",        0,                    0x0100 },       /* Left Bumper */
   { "Rewind (hold)",              0,                    0x00010000 },   /* LT */
   { "Slow Motion",                IDM_EMU_SLOWMO,       0 },
   { "Save State (current slot)",  IDM_ACCEL_QUICKSAVE,  0x00040000 },   /* right stick up */
@@ -572,20 +635,20 @@ static const char *padhk_button_name(int mask)
 {
   switch (mask)
   {
-    case 0x0001: return "D-pad Up";
-    case 0x0002: return "D-pad Down";
-    case 0x0004: return "D-pad Left";
-    case 0x0008: return "D-pad Right";
+    case 0x0001: return "D-Pad Up";
+    case 0x0002: return "D-Pad Down";
+    case 0x0004: return "D-Pad Left";
+    case 0x0008: return "D-Pad Right";
     case 0x0010: return "Start";
     case 0x0020: return "Back";
-    case 0x0100: return "LB (left shoulder)";
-    case 0x0200: return "RB (right shoulder)";
+    case 0x0100: return "LB (Left Bumper)";
+    case 0x0200: return "RB (Right Bumper)";
     case 0x1000: return "A";
     case 0x2000: return "B";
     case 0x4000: return "X";
     case 0x8000: return "Y";
-    case 0x00010000: return "LT (left trigger)";
-    case 0x00020000: return "RT (right trigger)";
+    case 0x00010000: return "LT (Left Trigger)";
+    case 0x00020000: return "RT (Right Trigger)";
     case 0x00040000: return "Right Stick Up";
     case 0x00080000: return "Right Stick Down";
     case 0x00100000: return "Right Stick Left";
